@@ -1,0 +1,37 @@
+{
+  "name": "loco-performance-automation",
+  "version": "1.0.0",
+  "description": "Industry-grade, multi-tenant performance testing framework using Playwright, TypeScript & Lighthouse for Core Web Vitals extraction",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:loco:all": "npx playwright test projects/loco/tests/loco-vitals.spec.ts",
+    "test:loco:home-section": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'Home Section'",
+    "test:loco:streamer-section": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'Streamer Section'",
+    "test:loco:player-section": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'Player Section'",
+    "test:loco:categories-section": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'Categories'",
+    "test:loco:home": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'Home Page'",
+    "test:loco:livestream": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'Livestream Player'",
+    "test:loco:vod": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'VOD Player'",
+    "report:open": "npx playwright show-report",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "playwright",
+    "lighthouse",
+    "performance",
+    "web-vitals",
+    "loco",
+    "automation"
+  ],
+  "author": "Harshad Bodekar",
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^22.15.0",
+    "csv-writer": "^1.6.0",
+    "dotenv": "^16.5.0",
+    "lighthouse": "^12.6.0",
+    "playwright-lighthouse": "^4.0.0",
+    "typescript": "^5.8.0"
+  }
+}
