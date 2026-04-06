@@ -59,7 +59,7 @@ function buildLambdaTestEndpoint(testName: string = 'Perf Test'): string {
   if (!username || !accessKey) {
     throw new Error(
       '[BrowserConnector] LambdaTest credentials missing! ' +
-        'Set LT_USERNAME and LT_ACCESS_KEY in your .env file.'
+      'Set LT_USERNAME and LT_ACCESS_KEY in your .env file.'
     );
   }
 
@@ -139,14 +139,19 @@ export async function connectBrowser(
 
     const browser = await chromium.connect(endpoint);
 
+    // Enable playwright-lighthouse's native LambdaTest integration.
+    // This tells the library to use LambdaTest's `lighthouseReport` action
+    // (via page.evaluate) instead of connecting through a local CDP port.
+    process.env.LIGHTHOUSE_LAMBDATEST = 'true';
     console.log('[BrowserConnector] ✅ Connected to LambdaTest');
+    console.log('[BrowserConnector] 🔦 LIGHTHOUSE_LAMBDATEST flag set — Lighthouse will use LambdaTest native audit');
     return { browser, port: -1, environment: 'lambdatest' };
   }
 
   // ── Unknown Environment ──────────────────────────────────────────
   throw new Error(
     `[BrowserConnector] Unknown EXECUTION_ENV: "${env}". ` +
-      'Supported values: "local", "lambdatest".'
+    'Supported values: "local", "lambdatest".'
   );
 }
 

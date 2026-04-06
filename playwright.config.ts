@@ -32,9 +32,16 @@ dotenv.config({ path: path.resolve(__dirname, '.env') });
  * Each Lighthouse audit takes ~20-30 seconds. We add generous buffer.
  */
 const iterationCount = parseInt(process.env.ITERATION_COUNT || '5', 10);
+const isLambdaTest = process.env.EXECUTION_ENV === 'lambdatest';
+
+// On LambdaTest, each audit may retry up to 3 times (with 10-40s backoff each)
+// plus cooldown periods between iterations/scenarios.
+const perIterationMs = isLambdaTest ? 120 * 1000 : 45 * 1000; // 2 min vs 45s
+const bufferMs = isLambdaTest ? 120 * 1000 : 60 * 1000;       // extra buffer
+
 const perTestTimeout = Math.max(
   5 * 60 * 1000,  // Minimum 5 minutes per test
-  iterationCount * 45 * 1000 + 60 * 1000  // 45s per iteration + 60s buffer
+  iterationCount * perIterationMs + bufferMs
 );
 
 export default defineConfig({

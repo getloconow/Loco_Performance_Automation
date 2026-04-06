@@ -149,13 +149,26 @@ CDP is the protocol that Chrome DevTools uses to communicate with the browser. W
 - Collect traces and timing data
 - Extract audit results
 
-In this framework, we launch Chrome with `--remote-debugging-port=9222`, which opens a CDP endpoint at `localhost:9222`. Lighthouse connects to this port to run its audits.
+In this framework, the audit path depends on the execution environment:
+
+**Local**: We launch Chrome with `--remote-debugging-port=9222`, which opens a CDP endpoint at `localhost:9222`. Lighthouse connects to this port to run its audits.
 
 ```
 ┌──────────────────┐          CDP (port 9222)         ┌───────────────┐
 │   Lighthouse     │ ◄──────────────────────────────► │  Chrome       │
 │   Audit Engine   │   "Measure FCP, LCP, CLS..."    │  Browser      │
 └──────────────────┘                                   └───────────────┘
+```
+
+**LambdaTest**: Direct CDP access is not available on remote cloud browsers. Instead, `playwright-lighthouse` detects the `LIGHTHOUSE_LAMBDATEST=true` environment variable and switches to LambdaTest's **native Lighthouse action** — a server-side audit triggered via `page.evaluate()` with a special `lambdatest_action` command.
+
+```
+┌──────────────────┐    page.evaluate()     ┌───────────────────────┐
+│   playwright-    │ ──────────────────────►│  LambdaTest Cloud     │
+│   lighthouse     │   lambdatest_action:   │  (runs Lighthouse     │
+│                  │ ◄──────────────────────│   server-side)        │
+│                  │   JSON LHR response    └───────────────────────┘
+└──────────────────┘
 ```
 
 ---
@@ -251,16 +264,16 @@ flowchart TD
 
     LAUNCH -->|local| LOCAL["chromium.launch()<br/>--remote-debugging-port=9222<br/>Returns: browser + port 9222"]
 
-    LAUNCH -->|lambdatest| CLOUD["Build WSS endpoint URL<br/>chromium.connect(endpoint)<br/>Returns: browser + port -1"]
+    LAUNCH -->|lambdatest| CLOUD["Build WSS endpoint URL<br/>chromium.connect(endpoint)<br/>Set LIGHTHOUSE_LAMBDATEST=true<br/>Returns: browser + port -1"]
 
     LOCAL --> T1
     CLOUD --> T1
 
-    T1["Test 1: Home Page<br/>1. browser.newContext()<br/>2. page.goto(home URL)"]
+    T1["Test 1: Home Page<br/>1. Inter-scenario cooldown (LT only, 10s)<br/>2. browser.newContext()<br/>3. page.goto(home URL)"]
 
     T1 --> ITER["runIteratedAudit()<br/>Loop N times:"]
 
-    ITER --> LOOP["For each iteration:<br/>1. page.goto(url, waitUntil: networkidle)<br/>2. wait 2000ms (settle)<br/>3. playAudit() via CDP<br/>4. Extract FCP, LCP, CLS, INP, TTFB<br/>5. Store WebVitalsResult"]
+    ITER --> LOOP["For each iteration:<br/>1. page.goto(url, waitUntil: domcontentloaded)<br/>2. wait 2000ms (settle)<br/>3. playAudit() — via CDP (local) or native action (LT)<br/>4. On failure (LT): retry up to 3x with backoff<br/>5. Extract FCP, LCP, CLS, INP, TTFB<br/>6. Store WebVitalsResult<br/>7. Inter-iteration cooldown (LT only, 5s)"]
 
     LOOP --> AGG["Compute aggregations:<br/>• Mean of each metric<br/>• P90 of each metric<br/>→ AggregatedVitals object"]
 
@@ -360,7 +373,7 @@ Inside each Lighthouse audit iteration, here's what happens at the protocol leve
 flowchart LR
     A["connectBrowser()"] --> B{"EXECUTION_ENV?"}
     B -->|"local"| C["chromium.launch()<br/>with --remote-debugging-port"]
-    B -->|"lambdatest"| D["Build WSS URL<br/>chromium.connect(endpoint)"]
+    B -->|"lambdatest"| D["Build WSS URL<br/>chromium.connect(endpoint)<br/>Set LIGHTHOUSE_LAMBDATEST=true"]
     C --> E["Return {browser, port: 9222, env: 'local'}"]
     D --> F["Return {browser, port: -1, env: 'lambdatest'}"]
 ```
@@ -368,7 +381,9 @@ flowchart LR
 **Why `--remote-debugging-port`?**
 When Chrome launches normally, there's no way for external tools to inspect it. The `--remote-debugging-port` flag opens a CDP server inside Chrome. Lighthouse connects to this server to run its audits. Without this flag, Lighthouse cannot function.
 
-**Additional launch flags explained**:
+**LambdaTest `LIGHTHOUSE_LAMBDATEST` flag**: When `EXECUTION_ENV=lambdatest`, the browser connector automatically sets `process.env.LIGHTHOUSE_LAMBDATEST = 'true'`. This signals `playwright-lighthouse` to use LambdaTest's **native server-side Lighthouse action** instead of trying to connect via a local CDP port (which isn't available on remote cloud browsers).
+
+**Additional launch flags explained** (local only):
 
 | Flag | Why It's Needed |
 |---|---|
@@ -386,20 +401,41 @@ When Chrome launches normally, there's no way for external tools to inspect it. 
 
 **Two key functions**:
 
-#### `runLighthouseAudit()` — Single Audit
+#### `runLighthouseAudit()` — Single Audit (with LambdaTest Retry Logic)
 1. Calls `playAudit()` from playwright-lighthouse
-2. Receives the full Lighthouse Result (LHR) object
-3. Extracts each metric via `extractMetric()` using the audit ID mapping
-4. Converts performance score from 0–1 scale to 0–100
-5. Returns a `WebVitalsResult` with all five metrics + score + timestamp
+2. **On LambdaTest**: If the audit fails (LambdaTest intermittently returns `500 Internal Server Error: "Failed to generate lighthouse report"`), the function retries up to **3 times** with **exponential backoff** (10s → 20s → 40s). Before each retry, the page is re-navigated to reset state.
+3. **On Local**: No retries — runs once. Failures indicate real issues.
+4. Receives the full Lighthouse Result (LHR) object
+5. Extracts each metric via `extractMetric()` using the audit ID mapping
+6. Converts performance score from 0–1 scale to 0–100
+7. Returns a `WebVitalsResult` with all five metrics + score + timestamp
+8. If all retries are exhausted, returns null-valued metrics (graceful degradation — does not break the aggregation pipeline)
+
+**LambdaTest Retry Configuration** (defined in `LAMBDATEST_RETRY_CONFIG`):
+| Setting | Value | Purpose |
+|---|---|---|
+| `maxRetries` | 3 | Maximum retry attempts per audit |
+| `initialBackoffMs` | 10,000ms (10s) | Initial wait before first retry (doubles each time) |
+| `cooldownMs` | 5,000ms (5s) | Pause between consecutive iterations on LambdaTest |
+
+```
+Attempt 1 → fail → wait 10s →
+Attempt 2 → fail → wait 20s →
+Attempt 3 → fail → wait 40s →
+Attempt 4 → fail → return null metrics (graceful degradation)
+```
+
+> [!NOTE]
+> The retry mechanism is specific to LambdaTest's transient server-side failures. Local executions are unaffected — they run a single attempt with no cooldowns.
 
 #### `runIteratedAudit()` — Multiple Audits with Aggregation
 1. Loops `N` times (from `ITERATION_COUNT`)
-2. **Each iteration navigates fresh** — `page.goto(url, { waitUntil: 'networkidle' })`
+2. **Each iteration navigates fresh** — `page.goto(url, { waitUntil: 'domcontentloaded' })`
 3. Waits 2 seconds for the page to settle
 4. Calls `runLighthouseAudit()` for each iteration
-5. After all iterations, computes **mean** and **P90** for each metric
-6. Returns an `AggregatedVitals` object
+5. **On LambdaTest**: Adds a 5-second cooldown between iterations to avoid overwhelming LambdaTest infrastructure
+6. After all iterations, computes **mean** and **P90** for each metric
+7. Returns an `AggregatedVitals` object
 
 > [!IMPORTANT]
 > **Why multiple iterations?** A single Lighthouse audit can vary by ±20% due to network conditions, CPU load, and browser state. Running 3–5 iterations and averaging eliminates noise and gives you a statistically meaningful result.
@@ -473,15 +509,17 @@ beforeAll()
   └── connectBrowser() → stores connection
 
 test("Home Page")
+  ├── LambdaTest inter-scenario cooldown (10s, skipped for first test)
   ├── browser.newContext() → isolated context
   ├── page.goto(home URL)
-  ├── runIteratedAudit() → N iterations
+  ├── runIteratedAudit() → N iterations (with retries on LT)
   └── push results to allResults[]
 
 test("Livestream Player")
+  ├── LambdaTest inter-scenario cooldown (10s)
   ├── browser.newContext()
   ├── Navigate to home → find live stream dynamically
-  ├── runIteratedAudit()
+  ├── runIteratedAudit() (with retries on LT)
   └── push results to allResults[]
 
 afterAll()
@@ -491,6 +529,9 @@ afterAll()
 
 > [!NOTE]
 > **Browser Context Isolation**: Each test creates a fresh `newContext()` to avoid cache/cookie leakage between scenarios. This ensures each measurement is independent.
+
+> [!NOTE]
+> **LambdaTest Inter-Scenario Cooldown**: On LambdaTest, a 10-second cooldown is inserted between scenarios (after the first). This prevents rapid back-to-back Lighthouse audit requests from overwhelming LambdaTest's server-side infrastructure, which can intermittently return 500 errors under heavy load.
 
 ---
 
@@ -503,7 +544,7 @@ afterAll()
 | `workers: 1` | Single worker | **Lighthouse requires exclusive CDP port access**. Two workers = port collision |
 | `fullyParallel: false` | Sequential | Tests share a browser connection from `beforeAll` |
 | `retries: 0` | No retries | Flaky perf results indicate real issues, don't mask them |
-| `timeout` | Calculated | `iterations × 45s + 60s buffer` — Lighthouse audits take 20-30s each |
+| `timeout` | Environment-aware | **Local**: `iterations × 45s + 60s buffer`. **LambdaTest**: `iterations × 120s + 120s buffer` (accounts for retry backoff and cooldown periods) |
 
 > [!WARNING]
 > **Never set `workers > 1`** for Lighthouse-based tests. All workers would try to use CDP port 9222 simultaneously, causing audit failures.
@@ -610,6 +651,9 @@ Then add a project entry in `playwright.config.ts`:
 | `ITERATION_COUNT` | Any integer | How many Lighthouse audits per scenario |
 | `HEADLESS` | `true` / `false` | Show/hide browser window (local only) |
 | `CHROME_DEBUG_PORT` | Port number | CDP port (default: 9222) |
+
+> [!NOTE]
+> **`LIGHTHOUSE_LAMBDATEST`** is set **automatically** by the browser connector when `EXECUTION_ENV=lambdatest`. You do not need to set it in `.env`. It tells `playwright-lighthouse` to use LambdaTest's native audit action instead of local CDP.
 
 ---
 

@@ -56,10 +56,22 @@ const ITERATIONS = config.iterationCount;
  * @param scenario — The scenario object from LOCO_SCENARIOS
  * @param emoji — Emoji for console logging
  */
+/** Cooldown between scenarios on LambdaTest (ms) */
+const LAMBDATEST_SCENARIO_COOLDOWN_MS = 10_000;
+
 async function runScenarioAudit(
   scenario: typeof LOCO_SCENARIOS[keyof typeof LOCO_SCENARIOS],
   emoji: string
 ): Promise<void> {
+  const isLambdaTest = connection.environment === 'lambdatest';
+
+  // Cooldown before starting a new scenario on LambdaTest to avoid
+  // overwhelming their server-side Lighthouse audit infrastructure
+  if (isLambdaTest && allResults.length > 0) {
+    console.log(`\n  ⏳ LambdaTest inter-scenario cooldown (${LAMBDATEST_SCENARIO_COOLDOWN_MS / 1000}s)...`);
+    await new Promise((r) => setTimeout(r, LAMBDATEST_SCENARIO_COOLDOWN_MS));
+  }
+
   const context = await connection.browser.newContext({
     viewport: { width: 1512, height: 982 },
     ignoreHTTPSErrors: true,

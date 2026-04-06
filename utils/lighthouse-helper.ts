@@ -106,8 +106,34 @@ export interface LighthouseRunOptions {
 }
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Retry configuration for LambdaTest native Lighthouse audits.
+ * LambdaTest's server-side audit can intermittently fail with
+ * "Failed to generate lighthouse report" — these retries handle
+ * that transient failure gracefully.
+ */
+const LAMBDATEST_RETRY_CONFIG = {
+  /** Maximum number of retry attempts per audit */
+  maxRetries: 3,
+  /** Initial backoff delay in ms (doubles on each retry) */
+  initialBackoffMs: 10_000,
+  /** Cooldown delay in ms between consecutive LambdaTest audits */
+  cooldownMs: 5_000,
+};
+
+// ---------------------------------------------------------------------------
 // Private Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Returns a promise that resolves after `ms` milliseconds.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Safely extracts a numeric metric value from the Lighthouse audit results.
@@ -183,80 +209,115 @@ export async function runLighthouseAudit(
 ): Promise<WebVitalsResult> {
   const { page, port, thresholds, lighthouseConfig } = options;
 
+  const isLambdaTest = process.env.LIGHTHOUSE_LAMBDATEST === 'true';
   console.log(`\n  🔍 Running Lighthouse Audit — Iteration #${iterationNumber}`);
   console.log(`     URL: ${page.url()}`);
-  console.log(`     CDP Port: ${port}`);
-
-  try {
-    // Run the Lighthouse audit via playwright-lighthouse
-    const auditResult = await playAudit({
-      page,
-      port,
-      thresholds: thresholds || DEFAULT_THRESHOLDS,
-      opts: {
-        formFactor: DEFAULT_LIGHTHOUSE_OPTIONS.formFactor,
-        onlyCategories: DEFAULT_LIGHTHOUSE_OPTIONS.onlyCategories,
-        screenEmulation: DEFAULT_LIGHTHOUSE_OPTIONS.screenEmulation,
-        throttling: DEFAULT_LIGHTHOUSE_OPTIONS.throttling,
-        ...lighthouseConfig,
-      },
-    });
-
-    // Access the Lighthouse Result (LHR) object
-    const lhr = auditResult.lhr;
-    const audits = lhr.audits;
-
-    // Extract each Core Web Vital
-    const fcp = extractMetric(audits, 'FCP');
-    const lcp = extractMetric(audits, 'LCP');
-    const cls = extractMetric(audits, 'CLS');
-    const inp = extractMetric(audits, 'INP');
-    const ttfb = extractMetric(audits, 'TTFB');
-
-    // Extract overall performance score (0-1 → 0-100)
-    const perfScore = lhr.categories?.performance?.score;
-    const performanceScore = perfScore !== null && perfScore !== undefined
-      ? round(perfScore * 100)
-      : null;
-
-    // Build result object
-    const result: WebVitalsResult = {
-      iteration: iterationNumber,
-      fcp: fcp !== null ? round(fcp) : null,
-      lcp: lcp !== null ? round(lcp) : null,
-      cls: cls !== null ? round(cls, 4) : null,
-      inp: inp !== null ? round(inp) : null,
-      ttfb: ttfb !== null ? round(ttfb) : null,
-      performanceScore,
-      timestamp: new Date().toISOString(),
-    };
-
-    // Pretty-print the extracted vitals
-    console.log(`     ┌─────────────────────────────────────────────┐`);
-    console.log(`     │  FCP:  ${String(result.fcp ?? 'N/A').padEnd(10)} ms              │`);
-    console.log(`     │  LCP:  ${String(result.lcp ?? 'N/A').padEnd(10)} ms              │`);
-    console.log(`     │  CLS:  ${String(result.cls ?? 'N/A').padEnd(10)}                 │`);
-    console.log(`     │  INP:  ${String(result.inp ?? 'N/A').padEnd(10)} ms              │`);
-    console.log(`     │  TTFB: ${String(result.ttfb ?? 'N/A').padEnd(10)} ms              │`);
-    console.log(`     │  Score: ${String(result.performanceScore ?? 'N/A').padEnd(9)} / 100          │`);
-    console.log(`     └─────────────────────────────────────────────┘`);
-
-    return result;
-  } catch (error) {
-    console.error(`  ❌ Lighthouse audit failed on iteration #${iterationNumber}:`, error);
-
-    // Return null-valued result so we don't break the aggregation pipeline
-    return {
-      iteration: iterationNumber,
-      fcp: null,
-      lcp: null,
-      cls: null,
-      inp: null,
-      ttfb: null,
-      performanceScore: null,
-      timestamp: new Date().toISOString(),
-    };
+  if (isLambdaTest) {
+    console.log(`     Mode: LambdaTest Native Audit`);
+  } else {
+    console.log(`     CDP Port: ${port}`);
   }
+
+  // ── Build the playAudit config once ──
+  const auditConfig = {
+    page,
+    port,
+    thresholds: thresholds || DEFAULT_THRESHOLDS,
+    opts: {
+      formFactor: DEFAULT_LIGHTHOUSE_OPTIONS.formFactor,
+      onlyCategories: DEFAULT_LIGHTHOUSE_OPTIONS.onlyCategories,
+      screenEmulation: DEFAULT_LIGHTHOUSE_OPTIONS.screenEmulation,
+      throttling: DEFAULT_LIGHTHOUSE_OPTIONS.throttling,
+      ...lighthouseConfig,
+    },
+  };
+
+  // ── Execute with retry logic for LambdaTest ──
+  const maxAttempts = isLambdaTest ? LAMBDATEST_RETRY_CONFIG.maxRetries + 1 : 1;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      if (attempt > 1) {
+        const backoff = LAMBDATEST_RETRY_CONFIG.initialBackoffMs * Math.pow(2, attempt - 2);
+        console.log(`  🔄 Retry ${attempt - 1}/${LAMBDATEST_RETRY_CONFIG.maxRetries} — waiting ${backoff / 1000}s before retrying...`);
+        await sleep(backoff);
+
+        // Re-navigate to the URL to reset the page state before retry
+        await page.goto(page.url(), { waitUntil: 'domcontentloaded', timeout: 120000 });
+        await sleep(2000);
+      }
+
+      // Run the Lighthouse audit via playwright-lighthouse
+      const auditResult = await playAudit(auditConfig);
+
+      // Access the Lighthouse Result (LHR) object
+      const lhr = auditResult.lhr;
+      const audits = lhr.audits;
+
+      // Extract each Core Web Vital
+      const fcp = extractMetric(audits, 'FCP');
+      const lcp = extractMetric(audits, 'LCP');
+      const cls = extractMetric(audits, 'CLS');
+      const inp = extractMetric(audits, 'INP');
+      const ttfb = extractMetric(audits, 'TTFB');
+
+      // Extract overall performance score (0-1 → 0-100)
+      const perfScore = lhr.categories?.performance?.score;
+      const performanceScore = perfScore !== null && perfScore !== undefined
+        ? round(perfScore * 100)
+        : null;
+
+      // Build result object
+      const result: WebVitalsResult = {
+        iteration: iterationNumber,
+        fcp: fcp !== null ? round(fcp) : null,
+        lcp: lcp !== null ? round(lcp) : null,
+        cls: cls !== null ? round(cls, 4) : null,
+        inp: inp !== null ? round(inp) : null,
+        ttfb: ttfb !== null ? round(ttfb) : null,
+        performanceScore,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Pretty-print the extracted vitals
+      console.log(`     ┌─────────────────────────────────────────────┐`);
+      console.log(`     │  FCP:  ${String(result.fcp ?? 'N/A').padEnd(10)} ms              │`);
+      console.log(`     │  LCP:  ${String(result.lcp ?? 'N/A').padEnd(10)} ms              │`);
+      console.log(`     │  CLS:  ${String(result.cls ?? 'N/A').padEnd(10)}                 │`);
+      console.log(`     │  INP:  ${String(result.inp ?? 'N/A').padEnd(10)} ms              │`);
+      console.log(`     │  TTFB: ${String(result.ttfb ?? 'N/A').padEnd(10)} ms              │`);
+      console.log(`     │  Score: ${String(result.performanceScore ?? 'N/A').padEnd(9)} / 100          │`);
+      console.log(`     └─────────────────────────────────────────────┘`);
+
+      if (attempt > 1) {
+        console.log(`  ✅ Audit succeeded on retry ${attempt - 1}`);
+      }
+
+      return result;
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < maxAttempts) {
+        console.warn(`  ⚠️  Lighthouse audit attempt ${attempt}/${maxAttempts} failed (will retry): ${(error as Error).message || error}`);
+      }
+    }
+  }
+
+  // All attempts exhausted
+  console.error(`  ❌ Lighthouse audit failed on iteration #${iterationNumber} after ${maxAttempts} attempt(s):`, lastError);
+
+  // Return null-valued result so we don't break the aggregation pipeline
+  return {
+    iteration: iterationNumber,
+    fcp: null,
+    lcp: null,
+    cls: null,
+    inp: null,
+    ttfb: null,
+    performanceScore: null,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 /**
@@ -295,6 +356,8 @@ export async function runIteratedAudit(
 
   const results: WebVitalsResult[] = [];
 
+  const isLambdaTest = process.env.LIGHTHOUSE_LAMBDATEST === 'true';
+
   for (let i = 1; i <= iterations; i++) {
     // Navigate fresh for each iteration to get independent measurements
     console.log(`\n  ── Iteration ${i} of ${iterations} ${'─'.repeat(35)}`);
@@ -308,6 +371,12 @@ export async function runIteratedAudit(
       i
     );
     results.push(result);
+
+    // Cooldown between iterations on LambdaTest to avoid overwhelming their infra
+    if (isLambdaTest && i < iterations) {
+      console.log(`  ⏳ LambdaTest cooldown (${LAMBDATEST_RETRY_CONFIG.cooldownMs / 1000}s)...`);
+      await sleep(LAMBDATEST_RETRY_CONFIG.cooldownMs);
+    }
   }
 
   // ── Compute Aggregations ──
