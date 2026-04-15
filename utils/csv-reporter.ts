@@ -72,7 +72,7 @@ function escapeCsv(value: string | number | null): string {
 /**
  * Writes detailed iteration-level results to a CSV file.
  *
- * Columns: Scenario, Iteration, FCP, LCP, CLS, INP, TTFB, Performance Score, Timestamp
+ * Columns: Scenario, Iteration, FCP, LCP, CLS, INP, TTFB, Page Load Time, Performance Score, Timestamp
  *
  * @param results — Array of aggregated vitals from test runs
  * @param config — Reporter configuration
@@ -98,6 +98,7 @@ export function writeDetailedCsv(
     'CLS',
     'INP (ms)',
     'TTFB (ms)',
+    'Page Load Time (ms)',
     'Performance Score',
     'Timestamp',
   ].join(',');
@@ -117,6 +118,7 @@ export function writeDetailedCsv(
           escapeCsv(iter.cls),
           escapeCsv(iter.inp),
           escapeCsv(iter.ttfb),
+          escapeCsv(iter.pageLoadTime),
           escapeCsv(iter.performanceScore),
           escapeCsv(iter.timestamp),
         ].join(',')
@@ -133,8 +135,8 @@ export function writeDetailedCsv(
  * Writes an aggregated summary CSV file with mean and P90 values.
  *
  * Columns: Scenario, URL, Iterations, Avg FCP, Avg LCP, Avg CLS, Avg INP,
- *          Avg TTFB, Avg Score, P90 FCP, P90 LCP, P90 CLS, P90 INP, P90 TTFB,
- *          Run Date
+ *          Avg TTFB, Avg PLT, Avg Score, P90 FCP, P90 LCP, P90 CLS, P90 INP,
+ *          P90 TTFB, P90 PLT, Run Date
  *
  * @param results — Array of aggregated vitals from test runs
  * @param config — Reporter configuration
@@ -159,12 +161,14 @@ export function writeSummaryCsv(
     'Avg CLS',
     'Avg INP (ms)',
     'Avg TTFB (ms)',
+    'Avg Page Load Time (ms)',
     'Avg Perf Score',
     'P90 FCP (ms)',
     'P90 LCP (ms)',
     'P90 CLS',
     'P90 INP (ms)',
     'P90 TTFB (ms)',
+    'P90 Page Load Time (ms)',
     'Run Date',
   ].join(',');
 
@@ -181,12 +185,14 @@ export function writeSummaryCsv(
         escapeCsv(agg.averages.cls),
         escapeCsv(agg.averages.inp),
         escapeCsv(agg.averages.ttfb),
+        escapeCsv(agg.averages.pageLoadTime),
         escapeCsv(agg.averages.performanceScore),
         escapeCsv(agg.p90.fcp),
         escapeCsv(agg.p90.lcp),
         escapeCsv(agg.p90.cls),
         escapeCsv(agg.p90.inp),
         escapeCsv(agg.p90.ttfb),
+        escapeCsv(agg.p90.pageLoadTime),
         escapeCsv(new Date().toISOString()),
       ].join(',')
     );

@@ -102,6 +102,7 @@ async function runScenarioAudit(
     console.log(`     Avg LCP: ${results.averages.lcp}ms`);
     console.log(`     Avg FCP: ${results.averages.fcp}ms`);
     console.log(`     Avg CLS: ${results.averages.cls}`);
+    console.log(`     Avg Page Load Time: ${results.averages.pageLoadTime}ms`);
     console.log(`     Avg Performance Score: ${results.averages.performanceScore}/100`);
   } finally {
     await context.close();

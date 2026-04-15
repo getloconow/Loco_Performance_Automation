@@ -49,6 +49,15 @@ export interface WebVitalsResult {
   /** Time to First Byte (server response time) in milliseconds */
   ttfb: number | null;
 
+  /**
+   * Page Load Time in milliseconds.
+   * Measured via the browser's Navigation Timing API (loadEventEnd - startTime).
+   * Represents the total time from navigation start to when the `load` event
+   * fires (i.e., all sub-resources like images, stylesheets, and scripts are
+   * fully loaded). This is captured independently of Lighthouse.
+   */
+  pageLoadTime: number | null;
+
   /** Overall Lighthouse Performance score (0-100) */
   performanceScore: number | null;
 
@@ -77,6 +86,7 @@ export interface AggregatedVitals {
     cls: number;
     inp: number;
     ttfb: number;
+    pageLoadTime: number;
     performanceScore: number;
   };
 
@@ -87,6 +97,7 @@ export interface AggregatedVitals {
     cls: number;
     inp: number;
     ttfb: number;
+    pageLoadTime: number;
   };
 }
 
@@ -269,6 +280,8 @@ export async function runLighthouseAudit(
         : null;
 
       // Build result object
+      // Note: pageLoadTime is injected by runIteratedAudit before calling this function.
+      // It is set to null here and populated by the caller.
       const result: WebVitalsResult = {
         iteration: iterationNumber,
         fcp: fcp !== null ? round(fcp) : null,
@@ -276,18 +289,20 @@ export async function runLighthouseAudit(
         cls: cls !== null ? round(cls, 4) : null,
         inp: inp !== null ? round(inp) : null,
         ttfb: ttfb !== null ? round(ttfb) : null,
+        pageLoadTime: null,
         performanceScore,
         timestamp: new Date().toISOString(),
       };
 
       // Pretty-print the extracted vitals
       console.log(`     ┌─────────────────────────────────────────────┐`);
-      console.log(`     │  FCP:  ${String(result.fcp ?? 'N/A').padEnd(10)} ms              │`);
-      console.log(`     │  LCP:  ${String(result.lcp ?? 'N/A').padEnd(10)} ms              │`);
-      console.log(`     │  CLS:  ${String(result.cls ?? 'N/A').padEnd(10)}                 │`);
-      console.log(`     │  INP:  ${String(result.inp ?? 'N/A').padEnd(10)} ms              │`);
-      console.log(`     │  TTFB: ${String(result.ttfb ?? 'N/A').padEnd(10)} ms              │`);
-      console.log(`     │  Score: ${String(result.performanceScore ?? 'N/A').padEnd(9)} / 100          │`);
+      console.log(`     │  FCP:   ${String(result.fcp ?? 'N/A').padEnd(10)} ms             │`);
+      console.log(`     │  LCP:   ${String(result.lcp ?? 'N/A').padEnd(10)} ms             │`);
+      console.log(`     │  CLS:   ${String(result.cls ?? 'N/A').padEnd(10)}                │`);
+      console.log(`     │  INP:   ${String(result.inp ?? 'N/A').padEnd(10)} ms             │`);
+      console.log(`     │  TTFB:  ${String(result.ttfb ?? 'N/A').padEnd(10)} ms             │`);
+      console.log(`     │  PLT:   ${String(result.pageLoadTime ?? 'N/A').padEnd(10)} ms             │`);
+      console.log(`     │  Score: ${String(result.performanceScore ?? 'N/A').padEnd(10)} / 100         │`);
       console.log(`     └─────────────────────────────────────────────┘`);
 
       if (attempt > 1) {
@@ -315,6 +330,7 @@ export async function runLighthouseAudit(
     cls: null,
     inp: null,
     ttfb: null,
+    pageLoadTime: null,
     performanceScore: null,
     timestamp: new Date().toISOString(),
   };
@@ -361,15 +377,44 @@ export async function runIteratedAudit(
   for (let i = 1; i <= iterations; i++) {
     // Navigate fresh for each iteration to get independent measurements
     console.log(`\n  ── Iteration ${i} of ${iterations} ${'─'.repeat(35)}`);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
-    // Small delay to let the page fully settle
+    // ── Step 1: Capture Page Load Time via Navigation Timing API ──
+    // Navigate with waitUntil: 'load' so the browser fires the load event
+    // (all sub-resources — images, CSS, JS, iframes — are fully loaded).
+    await page.goto(url, { waitUntil: 'load', timeout: 120000 });
+
+    // Extract the Page Load Time from the browser's Navigation Timing API.
+    // This uses PerformanceNavigationTiming (Level 2), which is the modern
+    // standard supported by all major browsers.
+    // Note: The evaluate callback runs in the browser context. We use `as any`
+    // to bypass Node-side TS checking for browser-only APIs.
+    const pageLoadTime = await page.evaluate((): number => {
+      const entries = performance.getEntriesByType('navigation' as any) as any[];
+      const entry = entries[0];
+      if (entry && entry.loadEventEnd > 0) {
+        return entry.loadEventEnd - entry.startTime;
+      }
+      return 0;
+    });
+
+    if (pageLoadTime > 0) {
+      console.log(`     ⏱️  Page Load Time: ${round(pageLoadTime)}ms (Navigation Timing API)`);
+    } else {
+      console.warn(`     ⚠️  Page Load Time: N/A (loadEventEnd not available)`);
+    }
+
+    // Small delay to let the page fully settle before Lighthouse
     await page.waitForTimeout(2000);
 
+    // ── Step 2: Run the Lighthouse audit for Web Vitals ──
     const result = await runLighthouseAudit(
       { page, port, thresholds },
       i
     );
+
+    // Inject the Page Load Time we captured above into the result
+    result.pageLoadTime = pageLoadTime > 0 ? round(pageLoadTime) : null;
+
     results.push(result);
 
     // Cooldown between iterations on LambdaTest to avoid overwhelming their infra
@@ -386,6 +431,7 @@ export async function runIteratedAudit(
     cls: round(mean(results.map((r) => r.cls)), 4),
     inp: round(mean(results.map((r) => r.inp))),
     ttfb: round(mean(results.map((r) => r.ttfb))),
+    pageLoadTime: round(mean(results.map((r) => r.pageLoadTime))),
     performanceScore: round(mean(results.map((r) => r.performanceScore))),
   };
 
@@ -395,6 +441,7 @@ export async function runIteratedAudit(
     cls: round(percentile(results.map((r) => r.cls), 90), 4),
     inp: round(percentile(results.map((r) => r.inp), 90)),
     ttfb: round(percentile(results.map((r) => r.ttfb), 90)),
+    pageLoadTime: round(percentile(results.map((r) => r.pageLoadTime), 90)),
   };
 
   const aggregated: AggregatedVitals = {
@@ -417,6 +464,7 @@ export async function runIteratedAudit(
   console.log(`  CLS               ${String(averages.cls).padEnd(14)}${p90.cls}`);
   console.log(`  INP (ms)          ${String(averages.inp).padEnd(14)}${p90.inp}`);
   console.log(`  TTFB (ms)         ${String(averages.ttfb).padEnd(14)}${p90.ttfb}`);
+  console.log(`  PLT (ms)          ${String(averages.pageLoadTime).padEnd(14)}${p90.pageLoadTime}`);
   console.log(`  Perf Score        ${averages.performanceScore}/100`);
   console.log(`${'═'.repeat(60)}\n`);
 
