@@ -54,15 +54,16 @@ graph LR
     B --> C["⚡ Interactivity<br/><b>INP</b><br/>Is it responsive?"]
 ```
 
-### The Five Metrics This Framework Measures
+### The Six Metrics This Framework Measures
 
-| Metric | Full Name | Unit | What It Measures | Good | Needs Work | Poor |
-|--------|-----------|------|-----------------|------|------------|------|
-| **FCP** | First Contentful Paint | ms | When the **first text or image** renders on screen | ≤ 1800ms | 1800–3000ms | > 3000ms |
-| **LCP** | Largest Contentful Paint | ms | When the **largest visible element** (hero image, video player) finishes rendering | ≤ 2500ms | 2500–4000ms | > 4000ms |
-| **CLS** | Cumulative Layout Shift | score | How much the page layout **shifts unexpectedly** (elements jumping around) | ≤ 0.1 | 0.1–0.25 | > 0.25 |
-| **INP** | Interaction to Next Paint | ms | Time from user interaction (click/tap) to the **next visual update** | ≤ 200ms | 200–500ms | > 500ms |
-| **TTFB** | Time to First Byte | ms | Time from the browser's request to **receiving the first byte** of the response from the server | ≤ 800ms | 800–1800ms | > 1800ms |
+| Metric | Full Name | Unit | What It Measures | Source | Good | Needs Work | Poor |
+|--------|-----------|------|-----------------|--------|------|------------|------|
+| **FCP** | First Contentful Paint | ms | When the **first text or image** renders on screen | Lighthouse | ≤ 1800ms | 1800–3000ms | > 3000ms |
+| **LCP** | Largest Contentful Paint | ms | When the **largest visible element** (hero image, video player) finishes rendering | Lighthouse | ≤ 2500ms | 2500–4000ms | > 4000ms |
+| **CLS** | Cumulative Layout Shift | score | How much the page layout **shifts unexpectedly** (elements jumping around) | Lighthouse | ≤ 0.1 | 0.1–0.25 | > 0.25 |
+| **INP** | Interaction to Next Paint | ms | Time from user interaction (click/tap) to the **next visual update** | Lighthouse | ≤ 200ms | 200–500ms | > 500ms |
+| **TTFB** | Time to First Byte | ms | Time from the browser's request to **receiving the first byte** of the response from the server | Lighthouse | ≤ 800ms | 800–1800ms | > 1800ms |
+| **PLT** | Page Load Time | ms | Total time from navigation start to the browser's `load` event (all sub-resources — images, CSS, JS, iframes — fully loaded) | Navigation Timing API | ≤ 3000ms | 3000–6000ms | > 6000ms |
 
 ### Visual Timeline: What Happens When a User Opens a Page
 
@@ -87,6 +88,10 @@ User hits Enter
 └────┬────┘
      ▼
 ┌─────────┐
+│  PLT    │  🔔 load event fires — ALL resources fully loaded
+└────┬────┘
+     ▼
+┌─────────┐
 │  INP    │  User clicks → how fast does the UI respond?
 └─────────┘
 ```
@@ -98,6 +103,7 @@ User hits Enter
 - **CLS on Chat**: Chat messages arriving shouldn't push the video player up/down
 - **INP**: When a user clicks "Subscribe" or a category filter, the UI must respond instantly
 - **TTFB**: Measures the CDN/server infrastructure health
+- **PLT**: The total time for everything to load — gives the complete "page ready" picture that complements the paint-based milestones above
 
 ---
 
@@ -273,9 +279,9 @@ flowchart TD
 
     T1 --> ITER["runIteratedAudit()<br/>Loop N times:"]
 
-    ITER --> LOOP["For each iteration:<br/>1. page.goto(url, waitUntil: domcontentloaded)<br/>2. wait 2000ms (settle)<br/>3. playAudit() — via CDP (local) or native action (LT)<br/>4. On failure (LT): retry up to 3x with backoff<br/>5. Extract FCP, LCP, CLS, INP, TTFB<br/>6. Store WebVitalsResult<br/>7. Inter-iteration cooldown (LT only, 5s)"]
+    ITER --> LOOP["For each iteration:<br/>1. page.goto(url, waitUntil: load)<br/>2. Capture Page Load Time via Navigation Timing API<br/>3. wait 2000ms (settle)<br/>4. playAudit() — via CDP (local) or native action (LT)<br/>5. On failure (LT): retry up to 3x with backoff<br/>6. Extract FCP, LCP, CLS, INP, TTFB<br/>7. Inject PLT into WebVitalsResult<br/>8. Store WebVitalsResult<br/>9. Inter-iteration cooldown (LT only, 5s)"]
 
-    LOOP --> AGG["Compute aggregations:<br/>• Mean of each metric<br/>• P90 of each metric<br/>→ AggregatedVitals object"]
+    LOOP --> AGG["Compute aggregations:<br/>• Mean of each metric (incl. PLT)<br/>• P90 of each metric (incl. PLT)<br/>→ AggregatedVitals object"]
 
     AGG --> PUSH["Push to allResults array"]
 
@@ -292,17 +298,55 @@ flowchart TD
 
 ### Single Iteration Deep Dive
 
-Inside each Lighthouse audit iteration, here's what happens at the protocol level:
+Inside each iteration, the framework captures **two independent measurements** — Page Load Time (via browser-native API) and Core Web Vitals (via Lighthouse):
+
+```mermaid
+sequenceDiagram
+    participant T as Test Runner (Node.js)
+    participant P as Playwright Page
+    participant B as Browser (Navigation Timing API)
+    participant L as Lighthouse (via CDP)
+
+    Note over T,L: ── Step 1: Page Load Time (Navigation Timing API) ──
+    T->>P: page.goto(url, { waitUntil: 'load' })
+    P->>B: Browser navigates & loads all resources
+    B-->>P: 🔔 load event fires
+    T->>P: page.evaluate(() => performance.getEntriesByType('navigation'))
+    P->>B: Query PerformanceNavigationTiming entry
+    B-->>T: loadEventEnd - startTime = Page Load Time ✅
+
+    Note over T: 2-second settle time
+
+    Note over T,L: ── Step 2: Core Web Vitals (Lighthouse Audit) ──
+    T->>L: playAudit({ page, port })
+    L->>B: Connect via CDP port · Collect performance trace
+    B-->>L: Trace data (paints, layout shifts, server timing)
+    L-->>T: LHR object with FCP, LCP, CLS, INP, TTFB, Score
+
+    Note over T: Inject PLT into WebVitalsResult
+    T->>T: result.pageLoadTime = PLT ✅
+```
+
+Here's the same flow at the protocol/code level:
 
 ```
 1. Playwright navigates to URL
-   └─► page.goto(url, { waitUntil: 'networkidle' })
-   └─► Waits until no network requests for 500ms
+   └─► page.goto(url, { waitUntil: 'load' })
+   └─► Waits until the browser's load event fires
+       (all sub-resources — images, CSS, JS, iframes — fully loaded)
 
-2. 2-second settle time
+2. Page Load Time captured via Navigation Timing API
+   └─► page.evaluate(() => {
+         const entry = performance.getEntriesByType('navigation')[0];
+         return entry.loadEventEnd - entry.startTime;
+       })
+   └─► Uses the browser's own high-resolution clock (not Node.js timestamps)
+   └─► Sub-millisecond precision, zero Playwright overhead
+
+3. 2-second settle time
    └─► Ensures late-loading content (ads, analytics) has finished
 
-3. playAudit() is called
+4. playAudit() is called
    └─► playwright-lighthouse connects to CDP port 9222
    └─► Lighthouse takes over the page:
        a. Collects a performance trace
@@ -312,14 +356,25 @@ Inside each Lighthouse audit iteration, here's what happens at the protocol leve
        e. Measures server response (TTFB)
        f. Computes an overall Performance Score (0-100)
 
-4. Results returned as LHR (Lighthouse Result) object
+5. Results returned as LHR (Lighthouse Result) object
    └─► lhr.audits['first-contentful-paint'].numericValue → FCP
    └─► lhr.audits['largest-contentful-paint'].numericValue → LCP
    └─► lhr.audits['cumulative-layout-shift'].numericValue → CLS
    └─► lhr.audits['interaction-to-next-paint'].numericValue → INP
    └─► lhr.audits['server-response-time'].numericValue → TTFB
    └─► lhr.categories.performance.score × 100 → Score
+
+6. PLT injected into the result
+   └─► result.pageLoadTime = pageLoadTime (from step 2)
 ```
+
+> [!IMPORTANT]
+> **Why is PLT captured separately from Lighthouse?**
+> Lighthouse does **not** report a "Page Load Time" metric — its metrics are paint-based (FCP, LCP) or interaction-based (INP, CLS). PLT measures the classic `load` event, which represents when **all** sub-resources finish downloading. The two measurement sources are complementary: Lighthouse tells you about perceived speed; PLT tells you about total resource loading time.
+
+> [!NOTE]
+> **Why Navigation Timing API instead of Node.js timestamps?**
+> A naive approach would be `const start = Date.now(); await page.goto(...); const plt = Date.now() - start;`. This is inaccurate because it uses **two different clocks** (Node.js and browser) and includes Playwright's CDP command serialization overhead (50–200ms noise). The Navigation Timing API runs entirely inside the browser, using a single high-resolution clock with sub-millisecond precision.
 
 ---
 
@@ -397,18 +452,18 @@ When Chrome launches normally, there's no way for external tools to inspect it. 
 
 ### 6.4 [lighthouse-helper.ts](file:///Users/harsh/Documents/GitHub/Loco_Performance_Automation/utils/lighthouse-helper.ts) — The Measurement Engine
 
-**Purpose**: The heart of the framework. Runs Lighthouse audits, extracts metrics, and computes aggregations.
+**Purpose**: The heart of the framework. Runs Lighthouse audits, captures Page Load Time via the Navigation Timing API, extracts metrics, and computes aggregations.
 
 **Two key functions**:
 
-#### `runLighthouseAudit()` — Single Audit (with LambdaTest Retry Logic)
+#### `runLighthouseAudit()` — Single Lighthouse Audit (with LambdaTest Retry Logic)
 1. Calls `playAudit()` from playwright-lighthouse
 2. **On LambdaTest**: If the audit fails (LambdaTest intermittently returns `500 Internal Server Error: "Failed to generate lighthouse report"`), the function retries up to **3 times** with **exponential backoff** (10s → 20s → 40s). Before each retry, the page is re-navigated to reset state.
 3. **On Local**: No retries — runs once. Failures indicate real issues.
 4. Receives the full Lighthouse Result (LHR) object
 5. Extracts each metric via `extractMetric()` using the audit ID mapping
 6. Converts performance score from 0–1 scale to 0–100
-7. Returns a `WebVitalsResult` with all five metrics + score + timestamp
+7. Returns a `WebVitalsResult` with all five Lighthouse metrics + score + timestamp (PLT is set to `null` — it's injected by the caller)
 8. If all retries are exhausted, returns null-valued metrics (graceful degradation — does not break the aggregation pipeline)
 
 **LambdaTest Retry Configuration** (defined in `LAMBDATEST_RETRY_CONFIG`):
@@ -430,24 +485,46 @@ Attempt 4 → fail → return null metrics (graceful degradation)
 
 #### `runIteratedAudit()` — Multiple Audits with Aggregation
 1. Loops `N` times (from `ITERATION_COUNT`)
-2. **Each iteration navigates fresh** — `page.goto(url, { waitUntil: 'domcontentloaded' })`
-3. Waits 2 seconds for the page to settle
-4. Calls `runLighthouseAudit()` for each iteration
-5. **On LambdaTest**: Adds a 5-second cooldown between iterations to avoid overwhelming LambdaTest infrastructure
-6. After all iterations, computes **mean** and **P90** for each metric
-7. Returns an `AggregatedVitals` object
+2. **Each iteration navigates fresh** — `page.goto(url, { waitUntil: 'load' })`
+3. **Captures Page Load Time** via the Navigation Timing API (`page.evaluate()`) — this runs inside the browser using the browser's own high-resolution clock
+4. Waits 2 seconds for the page to settle
+5. Calls `runLighthouseAudit()` for each iteration (extracts FCP, LCP, CLS, INP, TTFB)
+6. **Injects the captured PLT** into the `WebVitalsResult` returned by the Lighthouse audit
+7. **On LambdaTest**: Adds a 5-second cooldown between iterations to avoid overwhelming LambdaTest infrastructure
+8. After all iterations, computes **mean** and **P90** for each metric (including PLT)
+9. Returns an `AggregatedVitals` object
 
 > [!IMPORTANT]
 > **Why multiple iterations?** A single Lighthouse audit can vary by ±20% due to network conditions, CPU load, and browser state. Running 3–5 iterations and averaging eliminates noise and gives you a statistically meaningful result.
 
+**Page Load Time — The Code**:
+```typescript
+// Navigate with waitUntil: 'load' so the browser fires the load event
+await page.goto(url, { waitUntil: 'load', timeout: 120000 });
+
+// Extract PLT from the browser's own Navigation Timing API
+const pageLoadTime = await page.evaluate((): number => {
+  const entries = performance.getEntriesByType('navigation') as any[];
+  const entry = entries[0];
+  if (entry && entry.loadEventEnd > 0) {
+    return entry.loadEventEnd - entry.startTime;
+  }
+  return 0;
+});
+```
+
+> [!NOTE]
+> **`waitUntil` changed from `'domcontentloaded'` to `'load'`**: The `load` event fires when all sub-resources (images, CSS, JS, iframes) are fully loaded — this is exactly the event that defines Page Load Time. The earlier `domcontentloaded` only waited for the HTML to be parsed, which was fine when we only needed Lighthouse metrics, but insufficient for measuring true PLT.
+
 **Type Hierarchy**:
 ```
 WebVitalsResult (single iteration)
-  ├── fcp: number | null
-  ├── lcp: number | null
-  ├── cls: number | null
-  ├── inp: number | null
-  ├── ttfb: number | null
+  ├── fcp: number | null          ← from Lighthouse
+  ├── lcp: number | null          ← from Lighthouse
+  ├── cls: number | null          ← from Lighthouse
+  ├── inp: number | null          ← from Lighthouse
+  ├── ttfb: number | null         ← from Lighthouse
+  ├── pageLoadTime: number | null ← from Navigation Timing API
   ├── performanceScore: number | null
   └── timestamp: string
 
@@ -456,8 +533,8 @@ AggregatedVitals (across N iterations)
   ├── url: string
   ├── totalIterations: number
   ├── iterations: WebVitalsResult[]
-  ├── averages: { fcp, lcp, cls, inp, ttfb, performanceScore }
-  └── p90: { fcp, lcp, cls, inp, ttfb }
+  ├── averages: { fcp, lcp, cls, inp, ttfb, pageLoadTime, performanceScore }
+  └── p90: { fcp, lcp, cls, inp, ttfb, pageLoadTime }
 ```
 
 ---
@@ -466,18 +543,18 @@ AggregatedVitals (across N iterations)
 
 **Purpose**: Generates two CSV files per test run for historical analysis.
 
-| File | Granularity | Use Case |
-|---|---|---|
-| `detailed_results.csv` | One row per **iteration** | Debugging; seeing variance between runs |
-| `summary_results.csv` | One row per **scenario** | Dashboarding; tracking trends over time |
+| File | Granularity | Columns | Use Case |
+|---|---|---|---|
+| `detailed_results.csv` | One row per **iteration** | Scenario, URL, Iteration, FCP, LCP, CLS, INP, TTFB, **Page Load Time**, Perf Score, Timestamp | Debugging; seeing variance between runs |
+| `summary_results.csv` | One row per **scenario** | Scenario, URL, Iterations, Avg FCP/LCP/CLS/INP/TTFB/**PLT**/Score, P90 FCP/LCP/CLS/INP/TTFB/**PLT**, Run Date | Dashboarding; tracking trends over time |
 
 **Output Path**: `reports/<project>/<timestamp>/` — Each run creates a new timestamped directory, so you never overwrite historical data.
 
 **Sample Summary Row** (from your actual run):
 ```
 Home Page, https://preprod.loco.com/..., 3 iterations,
-Avg FCP: 461ms, Avg LCP: 3190ms, Avg CLS: 0.0007,
-P90 FCP: 1111ms, P90 LCP: 6350ms
+Avg FCP: 461ms, Avg LCP: 3190ms, Avg CLS: 0.0007, Avg PLT: 1842ms,
+P90 FCP: 1111ms, P90 LCP: 6350ms, P90 PLT: 2134ms
 ```
 
 ---
@@ -698,11 +775,15 @@ export const DEFAULT_THRESHOLDS = {
 | **CLS** | Cumulative Layout Shift — visual stability score |
 | **INP** | Interaction to Next Paint — input responsiveness |
 | **TTFB** | Time to First Byte — server response speed |
+| **PLT** | Page Load Time — total time from navigation start to the browser's `load` event (all resources fully loaded) |
+| **Navigation Timing API** | W3C Level 2 browser API (`PerformanceNavigationTiming`) that provides precise page load timing data from the browser's own clock |
+| **`loadEventEnd`** | The timestamp (from Navigation Timing API) when the browser's `load` event handler finishes — marks the end of Page Load Time |
 | **LHR** | Lighthouse Result — the full audit output object |
 | **P90** | 90th Percentile — the value below which 90% of observations fall |
 | **Lighthouse** | Google's open-source auditing tool for web page quality |
 | **playwright-lighthouse** | NPM bridge that runs Lighthouse through a Playwright-controlled browser |
 | **`playAudit()`** | The function from playwright-lighthouse that executes an audit |
+| **`page.evaluate()`** | Playwright method that executes JavaScript inside the browser context — used to access browser-only APIs like the Navigation Timing API |
 | **networkidle** | Playwright wait condition — no requests for 500ms |
 | **Multi-tenant** | Architecture pattern where one framework supports multiple independent projects |
 | **Barrel export** | An `index.ts` file that re-exports from multiple modules for cleaner imports |
