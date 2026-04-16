@@ -29,6 +29,7 @@ import { runIteratedAudit, AggregatedVitals } from '../../../utils/lighthouse-he
 import { writeAllReports } from '../../../utils/csv-reporter';
 import { config } from '../../../config/env.config';
 import { LOCO_SCENARIOS, LOCO_BASE_URL, printScenarioRegistry } from '../data/loco-scenarios';
+import { getLocoTokens, injectAuthCookies, injectAuthCookiesIntoBrowserDefault, LocoAuthTokens } from '../../../utils/loco-auth';
 
 // ---------------------------------------------------------------------------
 // Suite-Level Variables
@@ -42,6 +43,12 @@ const allResults: AggregatedVitals[] = [];
 
 /** Number of Lighthouse iterations per scenario */
 const ITERATIONS = config.iterationCount;
+
+/**
+ * Loco session tokens obtained once in beforeAll and reused across
+ * every test context. Null when LOCO_AUTH_ENABLED=false.
+ */
+let authTokens: LocoAuthTokens | null = null;
 
 // ---------------------------------------------------------------------------
 // Reusable Test Runner
@@ -76,6 +83,13 @@ async function runScenarioAudit(
     viewport: { width: 1512, height: 982 },
     ignoreHTTPSErrors: true,
   });
+
+  // Inject auth cookies BEFORE any navigation so the app sees the
+  // logged-in session on the very first page load.
+  if (authTokens) {
+    await injectAuthCookies(context, authTokens);
+  }
+
   const page = await context.newPage();
 
   try {
@@ -85,13 +99,35 @@ async function runScenarioAudit(
     // Warm-up navigation
     await page.goto(scenario.url, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
+    // Build Lighthouse-level auth config:
+    //   1. extraHeaders  — attaches a Cookie HTTP header to every Lighthouse
+    //                      network request (server-side auth + LambdaTest fallback)
+    //   2. disableStorageReset — prevents Lighthouse from clearing the auth
+    //                      cookies we planted in Chrome's default context before
+    //                      it navigates. Without this flag, Lighthouse wipes all
+    //                      storage as its very first audit step.
+    const lighthouseConfig = authTokens
+      ? {
+          disableStorageReset: true,
+          extraHeaders: {
+            Cookie: [
+              `access_token=${authTokens.accessToken}`,
+              `refresh_token=${authTokens.refreshToken}`,
+              `mode=logged-in`,
+            ].join('; '),
+          },
+        }
+      : undefined;
+
     // Run iterated Lighthouse audits
     const results = await runIteratedAudit(
       page,
       connection.port,
       scenario.url,
       scenario.name,
-      ITERATIONS
+      ITERATIONS,
+      undefined,       // thresholds — use defaults
+      lighthouseConfig // auth cookie headers for Lighthouse's internal navigation
     );
 
     // Store results for CSV export
@@ -129,7 +165,29 @@ test.beforeAll(async () => {
   console.log(`     CDP Port:     ${connection.port}`);
   console.log(`     Iterations:   ${ITERATIONS}`);
   console.log(`     Headless:     ${config.headless}`);
-  console.log(`     Base URL:     ${LOCO_BASE_URL}\n`);
+  console.log(`     Base URL:     ${LOCO_BASE_URL}`);
+  console.log(`     Auth Enabled: ${config.locoAuth.enabled}\n`);
+
+  // ── Authenticate the test user via OTPless ────────────────────────────────
+  // Tokens are obtained once and reused across all scenario contexts.
+  // Cookie injection happens per-context inside runScenarioAudit().
+  if (config.locoAuth.enabled) {
+    console.log('  🔐 Authenticating test user via OTPless SDK...');
+    authTokens = await getLocoTokens();
+    console.log('  ✅ Auth tokens obtained — cookies will be injected per context.\n');
+
+    // ── Inject into Chrome's DEFAULT context (for Lighthouse) ────────────────
+    // Lighthouse opens its audit tab in Chrome's DEFAULT browser context, not
+    // in the Playwright isolated context. We use connectOverCDP to reach the
+    // real default context and plant the auth cookies there.
+    // Must be paired with disableStorageReset:true in Lighthouse options so
+    // Lighthouse does not wipe these cookies before it navigates.
+    if (connection.environment === 'local') {
+      await injectAuthCookiesIntoBrowserDefault(connection.port, authTokens);
+    }
+  } else {
+    console.log('  ⚠️  LOCO_AUTH_ENABLED=false — running as guest (no login).\n');
+  }
 });
 
 /**

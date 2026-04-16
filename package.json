@@ -10,6 +10,7 @@
     "test:loco:player-section": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'Player Section'",
     "test:loco:categories-section": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'Categories'",
     "test:loco:home": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'Home Page'",
+    "test:loco:rewards": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'Rewards'",
     "test:loco:livestream": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'Livestream Player'",
     "test:loco:vod": "npx playwright test projects/loco/tests/loco-vitals.spec.ts --grep 'VOD Player'",
     "report:open": "npx playwright show-report",

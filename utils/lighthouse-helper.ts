@@ -362,7 +362,21 @@ export async function runIteratedAudit(
   url: string,
   scenario: string,
   iterations: number = 5,
-  thresholds?: Record<string, number>
+  thresholds?: Record<string, number>,
+  /**
+   * Optional Lighthouse flag overrides forwarded directly to `playAudit`.
+   * Spread on top of `DEFAULT_LIGHTHOUSE_OPTIONS` inside `runLighthouseAudit`.
+   *
+   * Primary use-case: authenticated audits.
+   * When auth cookies are required, pass:
+   *   { extraHeaders: { Cookie: 'access_token=...; refresh_token=...; mode=logged-in' } }
+   *
+   * Lighthouse will attach this Cookie header to every network request it
+   * makes during the audit, ensuring the audited page sees an authenticated
+   * session — even though Lighthouse opens its own independent CDP navigation
+   * that does not inherit the Playwright BrowserContext's cookie store.
+   */
+  lighthouseConfig?: Record<string, any>
 ): Promise<AggregatedVitals> {
   console.log(`\n${'═'.repeat(60)}`);
   console.log(`  📊 PERFORMANCE AUDIT: "${scenario}"`);
@@ -408,7 +422,7 @@ export async function runIteratedAudit(
 
     // ── Step 2: Run the Lighthouse audit for Web Vitals ──
     const result = await runLighthouseAudit(
-      { page, port, thresholds },
+      { page, port, thresholds, lighthouseConfig },
       i
     );
 
