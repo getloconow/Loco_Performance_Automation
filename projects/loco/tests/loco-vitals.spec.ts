@@ -29,7 +29,14 @@ import { runIteratedAudit, AggregatedVitals } from '../../../utils/lighthouse-he
 import { writeAllReports } from '../../../utils/csv-reporter';
 import { config } from '../../../config/env.config';
 import { LOCO_SCENARIOS, LOCO_BASE_URL, printScenarioRegistry } from '../data/loco-scenarios';
-import { getLocoTokens, injectAuthCookies, injectAuthCookiesIntoBrowserDefault, LocoAuthTokens } from '../../../utils/loco-auth';
+import {
+  getLocoTokens,
+  injectAuthCookies,
+  injectAuthCookiesIntoBrowserDefault,
+  injectAuthCookiesViaStorageCDP,
+  injectAuthCookiesViaRoutes,
+  LocoAuthTokens,
+} from '../../../utils/loco-auth';
 
 // ---------------------------------------------------------------------------
 // Suite-Level Variables
@@ -88,6 +95,15 @@ async function runScenarioAudit(
   // logged-in session on the very first page load.
   if (authTokens) {
     await injectAuthCookies(context, authTokens);
+
+    if (connection.environment === 'lambdatest') {
+      // Layer 2: intercept loco.com document requests and inject Set-Cookie
+      // in the response. This runs at the Playwright runtime level so it
+      // survives any clearDataForOrigin call that LambdaTest's Lighthouse
+      // makes before navigating. context.route() covers ALL pages in this
+      // context including any new tabs Lighthouse opens here.
+      await injectAuthCookiesViaRoutes(context, authTokens);
+    }
   }
 
   const page = await context.newPage();
@@ -177,13 +193,19 @@ test.beforeAll(async () => {
     console.log('  ✅ Auth tokens obtained — cookies will be injected per context.\n');
 
     // ── Inject into Chrome's DEFAULT context (for Lighthouse) ────────────────
-    // Lighthouse opens its audit tab in Chrome's DEFAULT browser context, not
-    // in the Playwright isolated context. We use connectOverCDP to reach the
-    // real default context and plant the auth cookies there.
-    // Must be paired with disableStorageReset:true in Lighthouse options so
-    // Lighthouse does not wipe these cookies before it navigates.
+    // Lighthouse opens its audit tab in Chrome's DEFAULT browser context, which
+    // is separate from the Playwright isolated context.
+    //
+    // LOCAL:       connectOverCDP exposes contexts()[0] → addCookies() there
+    // LAMBDATEST:  browser.newBrowserCDPSession() + Storage.setCookies (no
+    //              browserContextId) targets the same default context on the
+    //              remote LambdaTest Chrome instance.
+    //
+    // Both must be paired with disableStorageReset:true in Lighthouse options.
     if (connection.environment === 'local') {
       await injectAuthCookiesIntoBrowserDefault(connection.port, authTokens);
+    } else if (connection.environment === 'lambdatest') {
+      await injectAuthCookiesViaStorageCDP(connection.browser, authTokens);
     }
   } else {
     console.log('  ⚠️  LOCO_AUTH_ENABLED=false — running as guest (no login).\n');

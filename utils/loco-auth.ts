@@ -25,7 +25,7 @@
  * @module utils/loco-auth
  */
 
-import { chromium, BrowserContext } from 'playwright';
+import { chromium, Browser, BrowserContext } from 'playwright';
 import { config } from '../config/env.config';
 
 // ---------------------------------------------------------------------------
@@ -426,4 +426,164 @@ export async function injectAuthCookiesIntoBrowserDefault(
     await cdpBrowser.close();
     console.log('[LocoAuth] 🔗 CDP session closed (Chrome process is unaffected)');
   }
+}
+
+/**
+ * ─── LambdaTest Layer 1 ──────────────────────────────────────────────────────
+ *
+ * Injects auth cookies into Chrome's DEFAULT browser context via the
+ * browser-level CDP `Storage.setCookies` command.
+ *
+ * Why a separate function for LambdaTest:
+ *   On LambdaTest, there is no local CDP port (`connection.port = -1`), so
+ *   `chromium.connectOverCDP('http://localhost:-1')` is impossible.
+ *   Instead, `browser.newBrowserCDPSession()` opens a CDP session at the
+ *   BROWSER PROCESS level (not tied to any page or Playwright context).
+ *   `Storage.setCookies` without a `browserContextId` targets Chrome's
+ *   DEFAULT browser context — exactly where LambdaTest's Lighthouse runner
+ *   opens its audit tabs.
+ *
+ * Pair with `disableStorageReset: true` in Lighthouse flags so that Lighthouse
+ * does not wipe these cookies before it navigates.
+ *
+ * @param browser - The Playwright Browser object from the LambdaTest connection
+ * @param tokens  - Loco auth tokens from getLocoTokens()
+ */
+export async function injectAuthCookiesViaStorageCDP(
+  browser: Browser,
+  tokens: LocoAuthTokens
+): Promise<void> {
+  console.log(
+    '[LocoAuth] 🔗 Setting auth cookies in Chrome default context via Storage.setCookies CDP...'
+  );
+
+  // browser.newBrowserCDPSession() creates a CDP session at the browser process
+  // level. The Storage domain's setCookies command without a browserContextId
+  // applies to Chrome's default context — where LambdaTest's Lighthouse opens tabs.
+  const browserCDP = await browser.newBrowserCDPSession();
+
+  try {
+    await browserCDP.send('Storage.setCookies', {
+      cookies: [
+        {
+          name: 'access_token',
+          value: tokens.accessToken,
+          domain: '.loco.com',
+          path: '/',
+          secure: true,
+          httpOnly: false,
+          sameSite: 'Lax',
+        },
+        {
+          name: 'refresh_token',
+          value: tokens.refreshToken,
+          domain: '.loco.com',
+          path: '/',
+          secure: true,
+          httpOnly: false,
+          sameSite: 'Lax',
+        },
+        {
+          name: 'mode',
+          value: 'logged-in',
+          domain: '.loco.com',
+          path: '/',
+          secure: true,
+          httpOnly: false,
+          sameSite: 'Lax',
+        },
+      ],
+      // No browserContextId → targets Chrome's DEFAULT browser context
+    });
+
+    console.log(
+      '[LocoAuth] 🍪 Auth cookies set in LambdaTest Chrome default context → ' +
+      'access_token, refresh_token, mode=logged-in'
+    );
+  } finally {
+    await browserCDP.detach();
+    console.log('[LocoAuth] 🔗 Browser CDP session detached');
+  }
+}
+
+/**
+ * ─── LambdaTest Layer 2 ──────────────────────────────────────────────────────
+ *
+ * Registers a `context.route()` handler that injects auth cookies into every
+ * loco.com document navigation — both in the outgoing request and the response.
+ *
+ * Why this is needed (safety net over Layer 1):
+ *   Even after Layer 1 sets cookies in Chrome's default context, LambdaTest's
+ *   Lighthouse may call `clearDataForOrigin` as its first step — wiping all
+ *   stored cookies before navigating to the audit URL. Playwright route
+ *   handlers are runtime state, NOT browser storage. They survive any
+ *   `clearDataForOrigin` or `clearBrowserCookies` CDP call Lighthouse makes.
+ *
+ * How it works (per document request):
+ *   1. Forwards the request with auth cookies in the `cookie` header →
+ *      server immediately serves authenticated, personalised content
+ *   2. Injects `Set-Cookie` in the response → browser stores auth cookies
+ *      in its cookie jar
+ *   3. All subsequent sub-resource requests and API calls carry those cookies
+ *      automatically; `document.cookie` in the page's JavaScript also sees them
+ *
+ * Only `document` (top-level HTML navigation) requests are intercepted so that
+ * sub-resource (JS, CSS, images, XHR/fetch) timings are not affected.
+ *
+ * @param context - The Playwright BrowserContext for this scenario's audit
+ * @param tokens  - Loco auth tokens from getLocoTokens()
+ */
+export async function injectAuthCookiesViaRoutes(
+  context: BrowserContext,
+  tokens: LocoAuthTokens
+): Promise<void> {
+  const { accessToken, refreshToken } = tokens;
+
+  const authCookieString = [
+    `access_token=${accessToken}`,
+    `refresh_token=${refreshToken}`,
+    `mode=logged-in`,
+  ].join('; ');
+
+  // Playwright splits on \n into separate Set-Cookie response headers
+  const authSetCookieHeader = [
+    `access_token=${accessToken}; Path=/; Domain=.loco.com; Secure; SameSite=Lax`,
+    `refresh_token=${refreshToken}; Path=/; Domain=.loco.com; Secure; SameSite=Lax`,
+    `mode=logged-in; Path=/; Domain=.loco.com; Secure; SameSite=Lax`,
+  ].join('\n');
+
+  await context.route(/loco\.com/, async (route) => {
+    const request = route.request();
+
+    // Non-document resources pass through unchanged to avoid adding latency
+    // that would skew JS/CSS/image timing in the performance metrics.
+    if (request.resourceType() !== 'document') {
+      await route.continue();
+      return;
+    }
+
+    // Merge auth cookies with any cookies already on the request
+    const existing = request.headers()['cookie'] || '';
+    const mergedCookies = existing ? `${existing}; ${authCookieString}` : authCookieString;
+
+    // Fetch with auth injected into the outgoing request header
+    const response = await route.fetch({
+      headers: { ...request.headers(), cookie: mergedCookies },
+    });
+
+    // Append Set-Cookie to the response so the browser stores auth cookies
+    // in its cookie jar — making them accessible to document.cookie in the SPA
+    const responseHeaders = response.headers();
+    const existingSetCookie = responseHeaders['set-cookie'];
+    responseHeaders['set-cookie'] = existingSetCookie
+      ? `${existingSetCookie}\n${authSetCookieHeader}`
+      : authSetCookieHeader;
+
+    await route.fulfill({ response, headers: responseHeaders });
+  });
+
+  console.log(
+    '[LocoAuth] 🛣️  Route auth handler active — Set-Cookie injected on every ' +
+    'loco.com document request (survives Lighthouse storage resets)'
+  );
 }
