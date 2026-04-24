@@ -120,6 +120,17 @@ export const LOCO_SCENARIOS: Record<string, LocoScenario> = {
     tags: ['home', 'account', 'quests'],
   },
 
+  EMERGING_STREAMERS: {
+    id: 'emerging-streamers',
+    name: 'Emerging Streamers',
+    url: `${LOCO_BASE_URL}/streamers`,
+    section: 'Home',
+    description: 'Emerging streamers page',
+    priority: 'P0',
+    enabled: true,
+    tags: ['home', 'streamers'],
+  },
+
   // ── Section: Streamer ────────────────────────────────────────
   STREAMER_PROFILE: {
     id: 'streamer-profile',

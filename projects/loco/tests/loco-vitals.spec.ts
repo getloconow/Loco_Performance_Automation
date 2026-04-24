@@ -124,15 +124,15 @@ async function runScenarioAudit(
     //                      storage as its very first audit step.
     const lighthouseConfig = authTokens
       ? {
-          disableStorageReset: true,
-          extraHeaders: {
-            Cookie: [
-              `access_token=${authTokens.accessToken}`,
-              `refresh_token=${authTokens.refreshToken}`,
-              `mode=logged-in`,
-            ].join('; '),
-          },
-        }
+        disableStorageReset: true,
+        extraHeaders: {
+          Cookie: [
+            `access_token=${authTokens.accessToken}`,
+            `refresh_token=${authTokens.refreshToken}`,
+            `mode=logged-in`,
+          ].join('; '),
+        },
+      }
       : undefined;
 
     // Run iterated Lighthouse audits
@@ -260,6 +260,10 @@ test.describe('Loco — Home Section', () => {
 
   test('Quests — Core Web Vitals', async () => {
     await runScenarioAudit(LOCO_SCENARIOS.QUESTS, '⚔️');
+  });
+
+  test('Emerging Streamers — Core Web Vitals', async () => {
+    await runScenarioAudit(LOCO_SCENARIOS.EMERGING_STREAMERS, '✨');
   });
 
 });
