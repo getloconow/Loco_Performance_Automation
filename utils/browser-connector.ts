@@ -74,9 +74,11 @@ function buildLambdaTestEndpoint(testName: string = 'Perf Test'): string {
       user: username,
       accessKey,
       tunnel,
-      network: true,
+      network: false,
       console: true,
       video: true,
+      region: 'EU',
+      geoLocation: 'TR'
     },
   };
 
