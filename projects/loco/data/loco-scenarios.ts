@@ -146,12 +146,34 @@ export const LOCO_SCENARIOS: Record<string, LocoScenario> = {
   CHANNEL_PREVIEW: {
     id: 'channel-preview',
     name: 'Channel Preview',
-    url: `${LOCO_BASE_URL}/streamers/Stark.Baller573`,
+    url: `${LOCO_BASE_URL}/streamers/Ferocious.Demon318`,
     section: 'Streamer',
     description: 'Channel preview page — streamer card with stream info',
     priority: 'P0',
     enabled: true,
     tags: ['streamer', 'preview'],
+  },
+
+  LEADERBOARD: {
+    id: 'leaderboard',
+    name: 'Leaderboard',
+    url: `${LOCO_BASE_URL}/streamers/raging.tigress121/leaderboard`,
+    section: 'Streamer',
+    description: 'Leaderboard page',
+    priority: 'P0',
+    enabled: true,
+    tags: ['streamer', 'leaderboard'],
+  },
+
+  BATTLES: {
+    id: 'battles',
+    name: 'Battles',
+    url: `${LOCO_BASE_URL}/streamers/Khiladi_Vishal/loco-battles`,
+    section: 'Streamer',
+    description: 'Battles page',
+    priority: 'P0',
+    enabled: true,
+    tags: ['streamer', 'battles'],
   },
 
   // ── Section: Player ──────────────────────────────────────────

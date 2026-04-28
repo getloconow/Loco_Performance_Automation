@@ -282,6 +282,14 @@ test.describe('Loco — Streamer Section', () => {
     await runScenarioAudit(LOCO_SCENARIOS.CHANNEL_PREVIEW, '📺');
   });
 
+  test('Leaderboard — Core Web Vitals', async () => {
+    await runScenarioAudit(LOCO_SCENARIOS.LEADERBOARD, '🏅');
+  });
+
+  test('Battles — Core Web Vitals', async () => {
+    await runScenarioAudit(LOCO_SCENARIOS.BATTLES, '⚔️');
+  });
+
 });
 
 // ═══════════════════════════════════════════════════════════════
