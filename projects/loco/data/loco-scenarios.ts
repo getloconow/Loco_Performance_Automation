@@ -191,12 +191,56 @@ export const LOCO_SCENARIOS: Record<string, LocoScenario> = {
   VOD_PLAYER: {
     id: 'vod-player',
     name: 'VOD Player',
-    url: `${LOCO_BASE_URL}/stream/0cb34e43-06b7-4418-beb8-9cb673ec78a6`,
+    url: `${LOCO_BASE_URL}/stream/0e46ea82-6159-4798-9a01-763548bc1ee1`,
     section: 'Player',
     description: 'Video-on-demand player with recorded stream playback',
     priority: 'P0',
     enabled: true,
     tags: ['player', 'vod'],
+  },
+
+  LIVESTREAM_LEADERBOARD: {
+    id: 'livestream-leaderboard',
+    name: 'Livestream Leaderboard',
+    url: `${LOCO_BASE_URL}/streamers/raging.tigress121?tab=leaderboard`,
+    section: 'Player',
+    description: 'Live stream player page with leaderboard tab',
+    priority: 'P0',
+    enabled: true,
+    tags: ['player', 'live', 'leaderboard'],
+  },
+
+  LIVESTREAM_QUESTS: {
+    id: 'livestream-quests',
+    name: 'Livestream Quests',
+    url: `${LOCO_BASE_URL}/streamers/raging.tigress121?tab=quests`,
+    section: 'Player',
+    description: 'Live stream player page with quests tab',
+    priority: 'P0',
+    enabled: true,
+    tags: ['player', 'live', 'quests'],
+  },
+
+  LIVESTREAM_BATTLES: {
+    id: 'livestream-battles',
+    name: 'Livestream Battles',
+    url: `${LOCO_BASE_URL}/streamers/Khiladi_Vishal?tab=loco-battles`,
+    section: 'Player',
+    description: 'Live stream player page with battles tab',
+    priority: 'P0',
+    enabled: true,
+    tags: ['player', 'live', 'battles'],
+  },
+
+  LIVESTREAM_DROPS: {
+    id: 'livestream-drops',
+    name: 'Livestream Drops',
+    url: `${LOCO_BASE_URL}/streamers/raging.tigress121?tab=loco_drops`,
+    section: 'Player',
+    description: 'Live stream player page with loco drops tab',
+    priority: 'P0',
+    enabled: true,
+    tags: ['player', 'live', 'drops'],
   },
 
   // ── Section: Categories ──────────────────────────────────────

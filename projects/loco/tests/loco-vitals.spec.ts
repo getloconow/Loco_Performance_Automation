@@ -306,6 +306,22 @@ test.describe('Loco — Player Section', () => {
     await runScenarioAudit(LOCO_SCENARIOS.VOD_PLAYER, '▶️');
   });
 
+  test('Livestream Leaderboard — Core Web Vitals', async () => {
+    await runScenarioAudit(LOCO_SCENARIOS.LIVESTREAM_LEADERBOARD, '🏅');
+  });
+
+  test('Livestream Quests — Core Web Vitals', async () => {
+    await runScenarioAudit(LOCO_SCENARIOS.LIVESTREAM_QUESTS, '🏆');
+  });
+
+  test('Livestream Drops — Core Web Vitals', async () => {
+    await runScenarioAudit(LOCO_SCENARIOS.LIVESTREAM_DROPS, '🎁');
+  });
+
+  test('Livestream Battles — Core Web Vitals', async () => {
+    await runScenarioAudit(LOCO_SCENARIOS.LIVESTREAM_BATTLES, '⚔️');
+  });
+
 });
 
 // ═══════════════════════════════════════════════════════════════
