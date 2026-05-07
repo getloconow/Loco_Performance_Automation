@@ -27,6 +27,9 @@ import * as path from 'path';
 // Load environment variables before config is read
 dotenv.config({ path: path.resolve(__dirname, '.env') });
 
+// Ensure all workers share the same timestamp for CSV reporting
+process.env.RUN_TIMESTAMP = process.env.RUN_TIMESTAMP || new Date().toISOString().replace(/[T:]/g, '-').replace(/\..+$/, '').replace(/-/g, '_');
+
 /**
  * Calculate a reasonable timeout based on iteration count.
  * Each Lighthouse audit takes ~20-30 seconds. We add generous buffer.
@@ -52,18 +55,19 @@ export default defineConfig({
   // ── Execution ──────────────────────────────────────────────────
 
   /**
-   * CRITICAL: Lighthouse tests MUST run with a single worker.
-   * Multiple workers would compete for the same CDP port (9222)
-   * and cause audit failures.
+   * CRITICAL: Local Lighthouse tests MUST run with a single worker.
+   * Multiple workers would compete for the same CDP port (9222) locally.
+   * However, on LambdaTest, each worker gets an isolated cloud container,
+   * so we can run them in parallel to drastically reduce test execution time.
    */
-  workers: 1,
+  workers: isLambdaTest ? (process.env.WORKERS ? parseInt(process.env.WORKERS) : 4) : 1,
 
   /**
-   * Fully parallel execution within a file is DISABLED.
-   * Tests in a file share a browser connection (via beforeAll),
-   * so they must run sequentially.
+   * Fully parallel execution is ENABLED on LambdaTest and DISABLED on local.
+   * On LambdaTest (with multiple workers), this allows tests within 
+   * the same file to be distributed across different workers and run concurrently.
    */
-  fullyParallel: false,
+  fullyParallel: isLambdaTest ? true : false,
 
   // ── Timeouts ───────────────────────────────────────────────────
 

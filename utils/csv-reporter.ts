@@ -38,8 +38,11 @@ export interface CsvReporterConfig {
 
 /**
  * Generates a timestamp-based directory name: YYYY-MM-DD_HH-mm-ss
+ * Uses the shared RUN_TIMESTAMP from process.env if available so that 
+ * parallel workers write to the exact same folder.
  */
 function getTimestampDir(): string {
+  if (process.env.RUN_TIMESTAMP) return process.env.RUN_TIMESTAMP;
   const now = new Date();
   return now.toISOString().replace(/[T:]/g, '-').replace(/\..+$/, '').replace(/-/g, '_');
 }
@@ -88,6 +91,9 @@ export function writeDetailedCsv(
 
   const filePath = path.join(runDir, 'detailed_results.csv');
 
+  // Check if file exists to determine if we need a header
+  const fileExists = fs.existsSync(filePath);
+
   // CSV Header
   const header = [
     'Scenario',
@@ -104,7 +110,7 @@ export function writeDetailedCsv(
   ].join(',');
 
   // CSV Rows
-  const rows: string[] = [header];
+  const rows: string[] = fileExists ? [] : [header];
 
   for (const agg of results) {
     for (const iter of agg.iterations) {
@@ -126,8 +132,11 @@ export function writeDetailedCsv(
     }
   }
 
-  fs.writeFileSync(filePath, rows.join('\n'), 'utf-8');
-  console.log(`\n  📄 Detailed CSV written: ${filePath}`);
+  // If there are no rows to write (or just an empty header array), do nothing
+  if (rows.length > 0) {
+    fs.appendFileSync(filePath, rows.join('\n') + '\n', 'utf-8');
+  }
+  console.log(`\n  📄 Detailed CSV written/appended: ${filePath}`);
   return filePath;
 }
 
@@ -152,6 +161,8 @@ export function writeSummaryCsv(
 
   const filePath = path.join(runDir, 'summary_results.csv');
 
+  const fileExists = fs.existsSync(filePath);
+
   const header = [
     'Scenario',
     'URL',
@@ -172,7 +183,7 @@ export function writeSummaryCsv(
     'Run Date',
   ].join(',');
 
-  const rows: string[] = [header];
+  const rows: string[] = fileExists ? [] : [header];
 
   for (const agg of results) {
     rows.push(
@@ -198,8 +209,10 @@ export function writeSummaryCsv(
     );
   }
 
-  fs.writeFileSync(filePath, rows.join('\n'), 'utf-8');
-  console.log(`  📊 Summary CSV written: ${filePath}`);
+  if (rows.length > 0) {
+    fs.appendFileSync(filePath, rows.join('\n') + '\n', 'utf-8');
+  }
+  console.log(`  📊 Summary CSV written/appended: ${filePath}`);
   return filePath;
 }
 

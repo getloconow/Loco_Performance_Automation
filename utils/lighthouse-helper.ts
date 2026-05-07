@@ -376,7 +376,12 @@ export async function runIteratedAudit(
    * session — even though Lighthouse opens its own independent CDP navigation
    * that does not inherit the Playwright BrowserContext's cookie store.
    */
-  lighthouseConfig?: Record<string, any>
+  lighthouseConfig?: Record<string, any>,
+  /**
+   * Optional callback fired at the start of each iteration.
+   * Useful for re-injecting auth cookies if Lighthouse clears them.
+   */
+  onBeforeIteration?: (iteration: number) => Promise<void>
 ): Promise<AggregatedVitals> {
   console.log(`\n${'═'.repeat(60)}`);
   console.log(`  📊 PERFORMANCE AUDIT: "${scenario}"`);
@@ -391,6 +396,11 @@ export async function runIteratedAudit(
   for (let i = 1; i <= iterations; i++) {
     // Navigate fresh for each iteration to get independent measurements
     console.log(`\n  ── Iteration ${i} of ${iterations} ${'─'.repeat(35)}`);
+
+    // Execute the before-iteration hook if provided (e.g., to re-inject cookies)
+    if (onBeforeIteration) {
+      await onBeforeIteration(i);
+    }
 
     // ── Step 1: Capture Page Load Time via Navigation Timing API ──
     // Navigate with waitUntil: 'load' so the browser fires the load event

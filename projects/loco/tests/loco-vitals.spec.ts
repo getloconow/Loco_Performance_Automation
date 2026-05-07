@@ -143,7 +143,19 @@ async function runScenarioAudit(
       scenario.name,
       ITERATIONS,
       undefined,       // thresholds — use defaults
-      lighthouseConfig // auth cookie headers for Lighthouse's internal navigation
+      lighthouseConfig, // auth cookie headers for Lighthouse's internal navigation
+      async () => {
+        // Re-inject cookies into the default context before every iteration
+        // because LambdaTest's Lighthouse runner clears storage across runs
+        // despite the disableStorageReset flag.
+        if (authTokens) {
+          if (connection.environment === 'local') {
+            await injectAuthCookiesIntoBrowserDefault(connection.port, authTokens);
+          } else if (connection.environment === 'lambdatest') {
+            await injectAuthCookiesViaStorageCDP(connection.browser, authTokens);
+          }
+        }
+      }
     );
 
     // Store results for CSV export
