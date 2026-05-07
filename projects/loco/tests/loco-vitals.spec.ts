@@ -30,7 +30,6 @@ import { writeAllReports } from '../../../utils/csv-reporter';
 import { config } from '../../../config/env.config';
 import { LOCO_SCENARIOS, LOCO_BASE_URL, printScenarioRegistry } from '../data/loco-scenarios';
 import {
-  getLocoTokens,
   injectAuthCookies,
   injectAuthCookiesIntoBrowserDefault,
   injectAuthCookiesViaStorageCDP,
@@ -197,12 +196,18 @@ test.beforeAll(async () => {
   console.log(`     Auth Enabled: ${config.locoAuth.enabled}\n`);
 
   // ── Authenticate the test user via OTPless ────────────────────────────────
-  // Tokens are obtained once and reused across all scenario contexts.
-  // Cookie injection happens per-context inside runScenarioAudit().
+  // Tokens are obtained globally once per suite (in global.setup.ts) and 
+  // passed via environment variables to avoid rate-limiting the OTPless API.
   if (config.locoAuth.enabled) {
-    console.log('  🔐 Authenticating test user via OTPless SDK...');
-    authTokens = await getLocoTokens();
-    console.log('  ✅ Auth tokens obtained — cookies will be injected per context.\n');
+    if (process.env.LOCO_ACCESS_TOKEN && process.env.LOCO_REFRESH_TOKEN) {
+      authTokens = {
+        accessToken: process.env.LOCO_ACCESS_TOKEN,
+        refreshToken: process.env.LOCO_REFRESH_TOKEN,
+      };
+      console.log('  ✅ Loaded auth tokens from global setup.\n');
+    } else {
+      console.warn('  ⚠️  LOCO_AUTH_ENABLED is true, but no tokens found in process.env! Did global.setup.ts fail?');
+    }
 
     // ── Inject into Chrome's DEFAULT context (for Lighthouse) ────────────────
     // Lighthouse opens its audit tab in Chrome's DEFAULT browser context, which

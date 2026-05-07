@@ -51,6 +51,7 @@ export default defineConfig({
   // ── Test Discovery ─────────────────────────────────────────────
   testDir: './projects',
   testMatch: '**/*.spec.ts',
+  globalSetup: require.resolve('./global.setup.ts'),
 
   // ── Execution ──────────────────────────────────────────────────
 
