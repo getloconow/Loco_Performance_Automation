@@ -219,10 +219,12 @@ test.beforeAll(async () => {
     //              remote LambdaTest Chrome instance.
     //
     // Both must be paired with disableStorageReset:true in Lighthouse options.
-    if (connection.environment === 'local') {
-      await injectAuthCookiesIntoBrowserDefault(connection.port, authTokens);
-    } else if (connection.environment === 'lambdatest') {
-      await injectAuthCookiesViaStorageCDP(connection.browser, authTokens);
+    if (authTokens) {
+      if (connection.environment === 'local') {
+        await injectAuthCookiesIntoBrowserDefault(connection.port, authTokens);
+      } else if (connection.environment === 'lambdatest') {
+        await injectAuthCookiesViaStorageCDP(connection.browser, authTokens);
+      }
     }
   } else {
     console.log('  ⚠️  LOCO_AUTH_ENABLED=false — running as guest (no login).\n');
