@@ -587,3 +587,97 @@ export async function injectAuthCookiesViaRoutes(
     'loco.com document request (survives Lighthouse storage resets)'
   );
 }
+
+/**
+ * ─── Streamer Dashboard Local Storage Injectors ──────────────────────────────
+ *
+ * Streamer dashboard requires tokens to be present in localStorage instead of
+ * cookies. These methods provide the exact same functionality as the cookie
+ * injectors, but target localStorage.
+ */
+
+export async function injectAuthLocalStorage(
+  context: BrowserContext,
+  tokens: LocoAuthTokens
+): Promise<void> {
+  await context.addInitScript((data) => {
+    window.localStorage.setItem('access_token', data.accessToken);
+    window.localStorage.setItem('refresh_token', data.refreshToken);
+    window.localStorage.setItem('mode', 'logged-in');
+  }, tokens);
+
+  console.log('[LocoAuth] 🗄️ Auth local storage injected (via init script)');
+}
+
+export async function injectAuthLocalStorageIntoBrowserDefault(
+  port: number,
+  tokens: LocoAuthTokens,
+  origin: string
+): Promise<void> {
+  console.log(`[LocoAuth] 🔗 Attaching to Chrome default context to set local storage (port ${port})...`);
+  const cdpBrowser = await chromium.connectOverCDP(`http://localhost:${port}`);
+  try {
+    const contexts = cdpBrowser.contexts();
+    if (contexts.length === 0) {
+      console.warn('[LocoAuth] ⚠️ No default context found via CDP.');
+      return;
+    }
+    const defaultContext = contexts[0];
+    
+    // Create a temporary page to set local storage for the origin
+    const page = await defaultContext.newPage();
+    await page.goto(origin, { waitUntil: 'commit' });
+    await page.evaluate((data) => {
+      window.localStorage.setItem('access_token', data.accessToken);
+      window.localStorage.setItem('refresh_token', data.refreshToken);
+      window.localStorage.setItem('mode', 'logged-in');
+    }, tokens);
+    await page.close();
+    
+    console.log(`[LocoAuth] 🗄️ Auth local storage injected into Chrome default context for ${origin}`);
+  } finally {
+    await cdpBrowser.close();
+    console.log('[LocoAuth] 🔗 CDP session closed');
+  }
+}
+
+export async function injectAuthLocalStorageViaRoutes(
+  context: BrowserContext,
+  tokens: LocoAuthTokens
+): Promise<void> {
+  const { accessToken, refreshToken } = tokens;
+
+  await context.route(/loco\.com/, async (route) => {
+    const request = route.request();
+
+    if (request.resourceType() !== 'document') {
+      await route.continue();
+      return;
+    }
+
+    const response = await route.fetch();
+    const body = await response.text();
+
+    const injectedScript = `
+      <script>
+        window.localStorage.setItem('access_token', '${accessToken}');
+        window.localStorage.setItem('refresh_token', '${refreshToken}');
+        window.localStorage.setItem('mode', 'logged-in');
+      </script>
+    `;
+
+    const newBody = body.includes('<head>') 
+      ? body.replace('<head>', `<head>\n${injectedScript}`)
+      : `${injectedScript}\n${body}`;
+
+    await route.fulfill({
+      response,
+      body: newBody,
+      headers: response.headers(),
+    });
+  });
+
+  console.log(
+    '[LocoAuth] 🛣️ Route auth handler active — Local storage script injected into HTML on every loco.com document request'
+  );
+}

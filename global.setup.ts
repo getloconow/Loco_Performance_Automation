@@ -19,13 +19,17 @@ async function globalSetup() {
   if (config.locoAuth.enabled) {
     console.log('\n  🔐 [Global Setup] Authenticating test user via OTPless SDK...');
     try {
-      const authTokens = await getLocoTokens();
-      
-      // Inject tokens into process.env so all worker processes can inherit them
-      process.env.LOCO_ACCESS_TOKEN = authTokens.accessToken;
-      process.env.LOCO_REFRESH_TOKEN = authTokens.refreshToken;
-      
-      console.log('  ✅ [Global Setup] Auth tokens obtained and saved to process.env.\n');
+      console.log('  -> Fetching Viewer tokens...');
+      const viewerTokens = await getLocoTokens(config.locoAuth.viewer);
+      process.env.LOCO_VIEWER_ACCESS_TOKEN = viewerTokens.accessToken;
+      process.env.LOCO_VIEWER_REFRESH_TOKEN = viewerTokens.refreshToken;
+      console.log('  ✅ [Global Setup] Viewer auth tokens obtained.\n');
+
+      console.log('  -> Fetching Streamer Dashboard tokens...');
+      const streamerTokens = await getLocoTokens(config.locoAuth.streamer);
+      process.env.LOCO_STREAMER_ACCESS_TOKEN = streamerTokens.accessToken;
+      process.env.LOCO_STREAMER_REFRESH_TOKEN = streamerTokens.refreshToken;
+      console.log('  ✅ [Global Setup] Streamer auth tokens obtained.\n');
     } catch (error) {
       console.error('  ❌ [Global Setup] Failed to get Loco Auth tokens.', error);
       throw error; // Fail the entire suite if we can't login

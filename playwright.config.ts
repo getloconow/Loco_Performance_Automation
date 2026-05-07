@@ -139,12 +139,10 @@ export default defineConfig({
       testDir: './projects/loco/tests',
       testMatch: '**/*.spec.ts',
     },
-
-    // ── Template for future projects ──
-    // {
-    //   name: 'another-app-performance',
-    //   testDir: './projects/another-app/tests',
-    //   testMatch: '**/*.spec.ts',
-    // },
+    {
+      name: 'streamer-dashboard-performance',
+      testDir: './projects/streamer-dashboard/tests',
+      testMatch: '**/*.spec.ts',
+    },
   ],
 });

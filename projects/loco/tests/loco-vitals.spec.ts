@@ -199,10 +199,10 @@ test.beforeAll(async () => {
   // Tokens are obtained globally once per suite (in global.setup.ts) and 
   // passed via environment variables to avoid rate-limiting the OTPless API.
   if (config.locoAuth.enabled) {
-    if (process.env.LOCO_ACCESS_TOKEN && process.env.LOCO_REFRESH_TOKEN) {
+    if (process.env.LOCO_VIEWER_ACCESS_TOKEN && process.env.LOCO_VIEWER_REFRESH_TOKEN) {
       authTokens = {
-        accessToken: process.env.LOCO_ACCESS_TOKEN,
-        refreshToken: process.env.LOCO_REFRESH_TOKEN,
+        accessToken: process.env.LOCO_VIEWER_ACCESS_TOKEN,
+        refreshToken: process.env.LOCO_VIEWER_REFRESH_TOKEN,
       };
       console.log('  ✅ Loaded auth tokens from global setup.\n');
     } else {
