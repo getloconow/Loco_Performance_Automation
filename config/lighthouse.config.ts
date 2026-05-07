@@ -29,9 +29,6 @@ export const LIGHTHOUSE_AUDIT_IDS = {
   /** Cumulative Layout Shift (unitless score) */
   CLS: 'cumulative-layout-shift',
 
-  /** Interaction to Next Paint (ms) — requires user interaction */
-  INP: 'interaction-to-next-paint',
-
   /** Time to First Byte / Server Response Time (ms) */
   TTFB: 'server-response-time',
 

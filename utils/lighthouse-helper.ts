@@ -9,7 +9,7 @@
  *
  * Responsibilities:
  *   1. Run a Lighthouse audit against a given URL via CDP port
- *   2. Extract targeted Core Web Vitals (FCP, LCP, CLS, INP, TTFB)
+ *   2. Extract targeted Core Web Vitals (FCP, LCP, CLS, TTFB)
  *   3. Run N iterations and compute the mean averages
  *   4. Format results for downstream consumption (CSV, console)
  *
@@ -42,9 +42,6 @@ export interface WebVitalsResult {
 
   /** Cumulative Layout Shift (unitless) */
   cls: number | null;
-
-  /** Interaction to Next Paint in milliseconds */
-  inp: number | null;
 
   /** Time to First Byte (server response time) in milliseconds */
   ttfb: number | null;
@@ -84,7 +81,6 @@ export interface AggregatedVitals {
     fcp: number;
     lcp: number;
     cls: number;
-    inp: number;
     ttfb: number;
     pageLoadTime: number;
     performanceScore: number;
@@ -95,7 +91,6 @@ export interface AggregatedVitals {
     fcp: number;
     lcp: number;
     cls: number;
-    inp: number;
     ttfb: number;
     pageLoadTime: number;
   };
@@ -114,6 +109,12 @@ export interface LighthouseRunOptions {
 
   /** Optional Lighthouse config overrides */
   lighthouseConfig?: Record<string, any>;
+
+  /** The test scenario name (for tagging logs in parallel execution) */
+  scenarioName?: string;
+
+  /** Pre-calculated Page Load Time to include in the printed results */
+  pageLoadTime?: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,10 +219,11 @@ export async function runLighthouseAudit(
   options: LighthouseRunOptions,
   iterationNumber: number = 1
 ): Promise<WebVitalsResult> {
-  const { page, port, thresholds, lighthouseConfig } = options;
+  const { page, port, thresholds, lighthouseConfig, scenarioName, pageLoadTime } = options;
 
   const isLambdaTest = process.env.LIGHTHOUSE_LAMBDATEST === 'true';
-  console.log(`\n  🔍 Running Lighthouse Audit — Iteration #${iterationNumber}`);
+  const tag = scenarioName ? `[${scenarioName}] ` : '';
+  console.log(`\n  🔍 ${tag}Running Lighthouse Audit — Iteration #${iterationNumber}`);
   console.log(`     URL: ${page.url()}`);
   if (isLambdaTest) {
     console.log(`     Mode: LambdaTest Native Audit`);
@@ -270,7 +272,6 @@ export async function runLighthouseAudit(
       const fcp = extractMetric(audits, 'FCP');
       const lcp = extractMetric(audits, 'LCP');
       const cls = extractMetric(audits, 'CLS');
-      const inp = extractMetric(audits, 'INP');
       const ttfb = extractMetric(audits, 'TTFB');
 
       // Extract overall performance score (0-1 → 0-100)
@@ -280,30 +281,32 @@ export async function runLighthouseAudit(
         : null;
 
       // Build result object
-      // Note: pageLoadTime is injected by runIteratedAudit before calling this function.
-      // It is set to null here and populated by the caller.
       const result: WebVitalsResult = {
         iteration: iterationNumber,
         fcp: fcp !== null ? round(fcp) : null,
         lcp: lcp !== null ? round(lcp) : null,
         cls: cls !== null ? round(cls, 4) : null,
-        inp: inp !== null ? round(inp) : null,
         ttfb: ttfb !== null ? round(ttfb) : null,
-        pageLoadTime: null,
+        pageLoadTime: pageLoadTime ? round(pageLoadTime) : null,
         performanceScore,
         timestamp: new Date().toISOString(),
       };
 
-      // Pretty-print the extracted vitals
-      console.log(`     ┌─────────────────────────────────────────────┐`);
-      console.log(`     │  FCP:   ${String(result.fcp ?? 'N/A').padEnd(10)} ms             │`);
-      console.log(`     │  LCP:   ${String(result.lcp ?? 'N/A').padEnd(10)} ms             │`);
-      console.log(`     │  CLS:   ${String(result.cls ?? 'N/A').padEnd(10)}                │`);
-      console.log(`     │  INP:   ${String(result.inp ?? 'N/A').padEnd(10)} ms             │`);
-      console.log(`     │  TTFB:  ${String(result.ttfb ?? 'N/A').padEnd(10)} ms             │`);
-      console.log(`     │  PLT:   ${String(result.pageLoadTime ?? 'N/A').padEnd(10)} ms             │`);
-      console.log(`     │  Score: ${String(result.performanceScore ?? 'N/A').padEnd(10)} / 100         │`);
-      console.log(`     └─────────────────────────────────────────────┘`);
+      // Pretty-print the extracted vitals as a single string to prevent
+      // parallel workers from interleaving console.log lines
+      const box = [
+        `     ┌─────────────────────────────────────────────┐`,
+        `     │  Scenario: ${String(scenarioName || 'Audit').substring(0, 30).padEnd(31)}│`,
+        `     ├─────────────────────────────────────────────┤`,
+        `     │  FCP:   ${String(result.fcp ?? 'N/A').padEnd(10)} ms             │`,
+        `     │  LCP:   ${String(result.lcp ?? 'N/A').padEnd(10)} ms             │`,
+        `     │  CLS:   ${String(result.cls ?? 'N/A').padEnd(10)}                │`,
+        `     │  TTFB:  ${String(result.ttfb ?? 'N/A').padEnd(10)} ms             │`,
+        `     │  PLT:   ${String(result.pageLoadTime ?? 'N/A').padEnd(10)} ms             │`,
+        `     │  Score: ${String(result.performanceScore ?? 'N/A').padEnd(10)} / 100         │`,
+        `     └─────────────────────────────────────────────┘`
+      ].join('\n');
+      console.log(box);
 
       if (attempt > 1) {
         console.log(`  ✅ Audit succeeded on retry ${attempt - 1}`);
@@ -328,7 +331,6 @@ export async function runLighthouseAudit(
     fcp: null,
     lcp: null,
     cls: null,
-    inp: null,
     ttfb: null,
     pageLoadTime: null,
     performanceScore: null,
@@ -395,7 +397,7 @@ export async function runIteratedAudit(
 
   for (let i = 1; i <= iterations; i++) {
     // Navigate fresh for each iteration to get independent measurements
-    console.log(`\n  ── Iteration ${i} of ${iterations} ${'─'.repeat(35)}`);
+    console.log(`\n  ── [${scenario}] Iteration ${i} of ${iterations} ${'─'.repeat(35)}`);
 
     // Execute the before-iteration hook if provided (e.g., to re-inject cookies)
     if (onBeforeIteration) {
@@ -422,9 +424,9 @@ export async function runIteratedAudit(
     });
 
     if (pageLoadTime > 0) {
-      console.log(`     ⏱️  Page Load Time: ${round(pageLoadTime)}ms (Navigation Timing API)`);
+      console.log(`     ⏱️  [${scenario}] Page Load Time: ${round(pageLoadTime)}ms (Navigation Timing API)`);
     } else {
-      console.warn(`     ⚠️  Page Load Time: N/A (loadEventEnd not available)`);
+      console.warn(`     ⚠️  [${scenario}] Page Load Time: N/A (loadEventEnd not available)`);
     }
 
     // Small delay to let the page fully settle before Lighthouse
@@ -432,12 +434,9 @@ export async function runIteratedAudit(
 
     // ── Step 2: Run the Lighthouse audit for Web Vitals ──
     const result = await runLighthouseAudit(
-      { page, port, thresholds, lighthouseConfig },
+      { page, port, thresholds, lighthouseConfig, scenarioName: scenario, pageLoadTime },
       i
     );
-
-    // Inject the Page Load Time we captured above into the result
-    result.pageLoadTime = pageLoadTime > 0 ? round(pageLoadTime) : null;
 
     results.push(result);
 
@@ -453,7 +452,6 @@ export async function runIteratedAudit(
     fcp: round(mean(results.map((r) => r.fcp))),
     lcp: round(mean(results.map((r) => r.lcp))),
     cls: round(mean(results.map((r) => r.cls)), 4),
-    inp: round(mean(results.map((r) => r.inp))),
     ttfb: round(mean(results.map((r) => r.ttfb))),
     pageLoadTime: round(mean(results.map((r) => r.pageLoadTime))),
     performanceScore: round(mean(results.map((r) => r.performanceScore))),
@@ -463,7 +461,6 @@ export async function runIteratedAudit(
     fcp: round(percentile(results.map((r) => r.fcp), 90)),
     lcp: round(percentile(results.map((r) => r.lcp), 90)),
     cls: round(percentile(results.map((r) => r.cls), 90), 4),
-    inp: round(percentile(results.map((r) => r.inp), 90)),
     ttfb: round(percentile(results.map((r) => r.ttfb), 90)),
     pageLoadTime: round(percentile(results.map((r) => r.pageLoadTime), 90)),
   };
@@ -478,19 +475,22 @@ export async function runIteratedAudit(
   };
 
   // ── Print Summary ──
-  console.log(`\n${'═'.repeat(60)}`);
-  console.log(`  📈 AGGREGATED RESULTS: "${scenario}"`);
-  console.log(`${'═'.repeat(60)}`);
-  console.log(`  Metric            Mean          P90`);
-  console.log(`  ──────────────────────────────────────────`);
-  console.log(`  FCP (ms)          ${String(averages.fcp).padEnd(14)}${p90.fcp}`);
-  console.log(`  LCP (ms)          ${String(averages.lcp).padEnd(14)}${p90.lcp}`);
-  console.log(`  CLS               ${String(averages.cls).padEnd(14)}${p90.cls}`);
-  console.log(`  INP (ms)          ${String(averages.inp).padEnd(14)}${p90.inp}`);
-  console.log(`  TTFB (ms)         ${String(averages.ttfb).padEnd(14)}${p90.ttfb}`);
-  console.log(`  PLT (ms)          ${String(averages.pageLoadTime).padEnd(14)}${p90.pageLoadTime}`);
-  console.log(`  Perf Score        ${averages.performanceScore}/100`);
-  console.log(`${'═'.repeat(60)}\n`);
+  const summaryBox = [
+    `\n${'═'.repeat(60)}`,
+    `  📈 AGGREGATED RESULTS: "${scenario}"`,
+    `${'═'.repeat(60)}`,
+    `  Metric            Mean          P90`,
+    `  ──────────────────────────────────────────`,
+    `  FCP (ms)          ${String(averages.fcp).padEnd(14)}${p90.fcp}`,
+    `  LCP (ms)          ${String(averages.lcp).padEnd(14)}${p90.lcp}`,
+    `  CLS               ${String(averages.cls).padEnd(14)}${p90.cls}`,
+    `  TTFB (ms)         ${String(averages.ttfb).padEnd(14)}${p90.ttfb}`,
+    `  PLT (ms)          ${String(averages.pageLoadTime).padEnd(14)}${p90.pageLoadTime}`,
+    `  Perf Score        ${averages.performanceScore}/100`,
+    `${'═'.repeat(60)}\n`
+  ].join('\n');
+  
+  console.log(summaryBox);
 
   return aggregated;
 }
