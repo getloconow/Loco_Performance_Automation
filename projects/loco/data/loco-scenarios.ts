@@ -288,16 +288,41 @@ export const LOCO_SCENARIOS: Record<string, LocoScenario> = {
     tags: ['categories', 'search', 'interactive'],
   },
 
-  UPDATE_PROFILE: {
-    id: 'update-profile',
-    name: 'Update Profile',
+  // ── Section: User Profile ──────────────────────────────────────────
+
+  MY_PROFILE: {
+    id: 'my-profile',
+    name: 'My Profile',
     url: `${LOCO_BASE_URL}/user/profile`,
-    section: 'Categories',
+    section: 'User Profile',
     description: 'User profile edit page with form fields and avatar upload',
     priority: 'P0',
     enabled: true,
-    tags: ['account', 'profile'],
+    tags: ['user-profile', 'profile'],
   },
+
+  FOLLOWING: {
+    id: 'following',
+    name: 'Following',
+    url: `${LOCO_BASE_URL}/user/following`,
+    section: 'User Profile',
+    description: 'Following page',
+    priority: 'P0',
+    enabled: true,
+    tags: ['user-profile', 'following'],
+  },
+
+  SUBSCRIPTIONS: {
+    id: 'subscriptions',
+    name: 'Subscriptions',
+    url: `${LOCO_BASE_URL}/user/subscriptions`,
+    section: 'User Profile',
+    description: 'Subscriptions page',
+    priority: 'P0',
+    enabled: true,
+    tags: ['user-profile', 'subscriptions'],
+  },
+
 };
 
 // ---------------------------------------------------------------------------

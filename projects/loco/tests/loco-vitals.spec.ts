@@ -346,8 +346,24 @@ test.describe('Loco — Categories & Discovery', () => {
     await runScenarioAudit(LOCO_SCENARIOS.SEARCH_FETCH, '🔍');
   });
 
-  test('Update Profile — Core Web Vitals', async () => {
-    await runScenarioAudit(LOCO_SCENARIOS.UPDATE_PROFILE, '✏️');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Section: User Profile
+// ═══════════════════════════════════════════════════════════════
+
+test.describe('Loco — User Profile', () => {
+
+  test('My Profile — Core Web Vitals', async () => {
+    await runScenarioAudit(LOCO_SCENARIOS.MY_PROFILE, '👤');
+  });
+
+  test('Following — Core Web Vitals', async () => {
+    await runScenarioAudit(LOCO_SCENARIOS.FOLLOWING, '👥');
+  });
+
+  test('Subscriptions — Core Web Vitals', async () => {
+    await runScenarioAudit(LOCO_SCENARIOS.SUBSCRIPTIONS, '🔔');
   });
 
 });
