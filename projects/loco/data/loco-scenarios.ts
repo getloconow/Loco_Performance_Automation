@@ -235,7 +235,7 @@ export const LOCO_SCENARIOS: Record<string, LocoScenario> = {
   LIVESTREAM_DROPS: {
     id: 'livestream-drops',
     name: 'Livestream Drops',
-    url: `${LOCO_BASE_URL}/streamers/raging.tigress121?tab=loco_drops`,
+    url: `${LOCO_BASE_URL}/streamers/Khiladi_Vishal?tab=loco_drops`,
     section: 'Player',
     description: 'Live stream player page with loco drops tab',
     priority: 'P0',
