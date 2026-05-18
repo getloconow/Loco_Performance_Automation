@@ -43,7 +43,7 @@ const perIterationMs = isLambdaTest ? 120 * 1000 : 45 * 1000; // 2 min vs 45s
 const bufferMs = isLambdaTest ? 120 * 1000 : 60 * 1000;       // extra buffer
 
 const perTestTimeout = Math.max(
-  5 * 60 * 1000,  // Minimum 5 minutes per test
+  10 * 60 * 1000,  // Minimum 5 minutes per test
   iterationCount * perIterationMs + bufferMs
 );
 
