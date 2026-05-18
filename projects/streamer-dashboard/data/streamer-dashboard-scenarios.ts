@@ -28,7 +28,7 @@ export interface StreamerDashboardScenario {
 // Base URL
 // ---------------------------------------------------------------------------
 
-export const STREAMER_DASHBOARD_BASE_URL = 'https://dashboard.loco.com';
+export const STREAMER_DASHBOARD_BASE_URL = 'https://dashboard-staging.loco.gg';
 
 // ---------------------------------------------------------------------------
 // P0 Scenario Registry
@@ -75,7 +75,7 @@ export const STREAMER_DASHBOARD_SCENARIOS: Record<string, StreamerDashboardScena
   MODERATOR: {
     id: 'moderator',
     name: 'Moderator',
-    url: `${STREAMER_DASHBOARD_BASE_URL}/dashboard/moderators`,
+    url: `${STREAMER_DASHBOARD_BASE_URL}/dashboard/moderator-control/moderators`,
     section: 'Moderator',
     description: 'Moderator management page',
     priority: 'P0',
@@ -86,7 +86,7 @@ export const STREAMER_DASHBOARD_SCENARIOS: Record<string, StreamerDashboardScena
   BLOCKED_WORDS: {
     id: 'blocked-words',
     name: 'Blocked Words',
-    url: `${STREAMER_DASHBOARD_BASE_URL}/dashboard/moderators/blocked-words`,
+    url: `${STREAMER_DASHBOARD_BASE_URL}/dashboard/moderator-control/blocked-words`,
     section: 'Moderator',
     description: 'Blocked words management page',
     priority: 'P0',
@@ -97,7 +97,7 @@ export const STREAMER_DASHBOARD_SCENARIOS: Record<string, StreamerDashboardScena
   MUTED_USERS: {
     id: 'muted-users',
     name: 'Muted Users',
-    url: `${STREAMER_DASHBOARD_BASE_URL}/dashboard/moderators/blocked-users`,
+    url: `${STREAMER_DASHBOARD_BASE_URL}/dashboard/moderator-control/blocked-users`,
     section: 'Moderator',
     description: 'Muted users management page',
     priority: 'P0',
@@ -108,7 +108,7 @@ export const STREAMER_DASHBOARD_SCENARIOS: Record<string, StreamerDashboardScena
   ACTIVITIES: {
     id: 'activities',
     name: 'Activities',
-    url: `${STREAMER_DASHBOARD_BASE_URL}/dashboard/moderators/activities`,
+    url: `${STREAMER_DASHBOARD_BASE_URL}/dashboard/moderator-control/activities`,
     section: 'Moderator',
     description: 'Moderator activities log page',
     priority: 'P0',
